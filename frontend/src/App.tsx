@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { apiUrl } from './api'
 import {
   clearLocalData,
   DEMO_BASELINE,
@@ -22,7 +23,6 @@ import './styles.css'
 type SensorStatus = 'awaiting' | 'starting' | 'connected' | 'unavailable' | 'stopped'
 type SoundStatus = 'awaiting' | 'measuring' | 'connected' | 'unavailable'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 const DEMO_LEVELS: Record<ActivityState, number> = {
   still: 0.08,
   walking: 0.58,
@@ -167,7 +167,7 @@ export default function App() {
     let active = true
     const checkHomeSensor = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/sensors/health`)
+        const response = await fetch(apiUrl('/api/sensors/health'))
         if (!response.ok) return
         const payload = await response.json() as { last_source?: string | null }
         if (active) setHomeConnected(payload.last_source === 'arduino')
@@ -338,7 +338,7 @@ export default function App() {
     setCompanionBusy(true)
     setAudioUrl(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/api/companion/respond`, {
+      const response = await fetch(apiUrl('/api/companion/respond'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wellness_context: wellnessContext, user_message: message }),
@@ -361,7 +361,7 @@ export default function App() {
     form.append('audio', blob, `withyou-voice.${extension}`)
     form.append('wellness_context', JSON.stringify(wellnessContext))
     try {
-      const response = await fetch(`${API_BASE_URL}/api/companion/voice`, { method: 'POST', body: form })
+      const response = await fetch(apiUrl('/api/companion/voice'), { method: 'POST', body: form })
       if (!response.ok) throw new Error('voice unavailable')
       const result = await response.json() as CompanionResult
       setCompanionResult(result)
