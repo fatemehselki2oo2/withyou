@@ -1,0 +1,93 @@
+export type ActivityState = 'still' | 'walking' | 'active' | 'sleeping'
+export type SensorSource = 'phone' | 'arduino' | 'watch' | 'manual'
+export type SensorType =
+  | 'activity'
+  | 'motion'
+  | 'sound_level'
+  | 'temperature'
+  | 'humidity'
+  | 'light'
+  | 'sleep'
+  | 'mood'
+  | 'proximity'
+
+export type SensorMetadata = Record<string, string | number | boolean | null>
+
+export interface SensorReading {
+  id?: number
+  timestamp: string
+  source: SensorSource
+  sensor_type: SensorType
+  value: number
+  unit: string
+  confidence?: number
+  is_simulated: boolean
+  metadata: SensorMetadata
+}
+
+export interface ActivityReading {
+  id?: number
+  timestamp: string
+  source: 'phone'
+  activity_level: number
+  state: ActivityState
+  is_simulated: boolean
+}
+
+export interface BaselineProfile {
+  id: 'demo'
+  normal_activity_level: number
+  normal_inactivity_duration: number
+  normal_sleep_duration: number
+  normal_wake_time: string
+  normal_sound_level: number
+  baseline_status: 'ready'
+  baseline_confidence: 'high'
+  is_demo_baseline: true
+}
+
+export type ComparisonStatus = 'normal' | 'changed'
+
+export interface PatternAnalysis {
+  status: ComparisonStatus
+  severity: 'low' | 'moderate'
+  reasons: string[]
+  check_in_recommended: boolean
+}
+
+export interface WellnessContext {
+  activity: {
+    current: number
+    baseline: number
+    difference_percent: number
+    status: ComparisonStatus
+  } | null
+  sleep: {
+    hours: number
+    baseline_hours: number
+    status: ComparisonStatus
+  } | null
+  environment: {
+    temperature: number | null
+    temperature_source: 'simulated' | 'arduino' | 'unknown' | null
+    humidity: number | null
+    light: number | null
+    sound_level: 'quiet' | 'normal' | 'loud' | 'unknown'
+  }
+  mood: string | null
+  overall_pattern_status: ComparisonStatus
+  severity: 'low' | 'moderate'
+  reasons: string[]
+  check_in_recommended: boolean
+}
+
+export interface CompanionResult {
+  text: string
+  observations_used: string[]
+  used_ai: boolean
+  transcript?: string
+  audio_base64?: string | null
+  audio_mime_type?: string | null
+  audio_available?: boolean
+}
+

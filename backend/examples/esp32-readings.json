@@ -1,0 +1,42 @@
+{
+  "temperature": {
+    "timestamp": "2026-09-25T18:30:00Z",
+    "source": "arduino",
+    "sensor_type": "temperature",
+    "value": 74.2,
+    "unit": "fahrenheit",
+    "confidence": 0.98,
+    "is_simulated": false,
+    "metadata": { "device_id": "withyou-room-01" }
+  },
+  "humidity": {
+    "timestamp": "2026-09-25T18:30:00Z",
+    "source": "arduino",
+    "sensor_type": "humidity",
+    "value": 47.8,
+    "unit": "percent",
+    "confidence": 0.96,
+    "is_simulated": false,
+    "metadata": { "device_id": "withyou-room-01" }
+  },
+  "light": {
+    "timestamp": "2026-09-25T18:30:00Z",
+    "source": "arduino",
+    "sensor_type": "light",
+    "value": 315,
+    "unit": "lux",
+    "confidence": 0.9,
+    "is_simulated": false,
+    "metadata": { "device_id": "withyou-room-01" }
+  },
+  "motion": {
+    "timestamp": "2026-09-25T18:30:00Z",
+    "source": "arduino",
+    "sensor_type": "motion",
+    "value": 1,
+    "unit": "boolean",
+    "confidence": 0.99,
+    "is_simulated": false,
+    "metadata": { "device_id": "withyou-room-01", "classification": "detected" }
+  }
+}

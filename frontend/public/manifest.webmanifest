@@ -1,0 +1,19 @@
+{
+  "name": "WithYou",
+  "short_name": "WithYou",
+  "description": "A privacy-aware wellness companion for people who live alone.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f1ea",
+  "theme_color": "#23463f",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
