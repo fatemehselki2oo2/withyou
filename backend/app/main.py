@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -20,6 +20,7 @@ load_dotenv(PROJECT_ROOT / ".env", override=False)
 load_dotenv(PROJECT_ROOT.parent / ".env", override=False)
 
 from .companion import create_companion_response, process_voice_message
+from .demo_sessions import DemoSessionDeviceConflict, DemoSessionStore
 from .models import (
     CompanionRequest,
     CompanionResponse,
@@ -33,6 +34,7 @@ MAX_JSON_BYTES = 32_768
 MAX_REQUEST_BYTES = int(os.environ.get("MAX_REQUEST_BYTES", 12 * 1024 * 1024))
 MAX_AUDIO_BYTES = int(os.environ.get("MAX_AUDIO_BYTES", 10 * 1024 * 1024))
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("RATE_LIMIT_PER_MINUTE", 30))
+DEMO_SESSION_TTL_MINUTES = int(os.environ.get("DEMO_SESSION_TTL_MINUTES", 240))
 
 app = FastAPI(
     title="WithYou API",
@@ -53,7 +55,7 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Demo-Session-ID"],
 )
 
 sensor_state: dict[str, Any] = {
@@ -61,8 +63,14 @@ sensor_state: dict[str, Any] = {
     "last_reading_at": None,
     "last_source": None,
     "last_sensor_type": None,
+    # This is connection metadata only. Health values are acknowledged and discarded.
+    "sources": {
+        "arduino": {"connected": False, "last_reading_at": None, "last_sensor_type": None},
+        "watch": {"connected": False, "last_reading_at": None, "last_sensor_type": None},
+    },
 }
 request_windows: dict[str, deque[float]] = defaultdict(deque)
+demo_session_store = DemoSessionStore(ttl_minutes=DEMO_SESSION_TTL_MINUTES)
 
 
 @app.middleware("http")
@@ -115,6 +123,8 @@ async def sensors_health() -> dict[str, Any]:
             "sleep",
             "mood",
             "proximity",
+            "steps",
+            "heart_rate",
         ],
         **sensor_state,
     }
@@ -126,17 +136,52 @@ async def ingest_sensor_reading(reading: SensorReading, request: Request) -> dic
     if content_length and int(content_length) > MAX_JSON_BYTES:
         raise HTTPException(status_code=413, detail="Sensor payload must be 32 KB or smaller.")
 
+    received_at = datetime.now(UTC)
+    temporarily_cached = False
+    try:
+        reading, temporarily_cached = demo_session_store.ingest(reading, received_at)
+    except DemoSessionDeviceConflict:
+        raise HTTPException(status_code=409, detail="Demo code is already paired with another device.") from None
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
+
     sensor_state["received_count"] += 1
-    sensor_state["last_reading_at"] = datetime.now(UTC).isoformat()
+    sensor_state["last_reading_at"] = received_at.isoformat()
     sensor_state["last_source"] = reading.source
     sensor_state["last_sensor_type"] = reading.sensor_type
+    if reading.source in sensor_state["sources"]:
+        sensor_state["sources"][reading.source] = {
+            "connected": True,
+            "last_reading_at": sensor_state["last_reading_at"],
+            "last_sensor_type": reading.sensor_type,
+        }
     return {
         "status": "accepted",
         "received_at": sensor_state["last_reading_at"],
         "source": reading.source,
         "sensor_type": reading.sensor_type,
         "stored": False,
+        "temporarily_cached": temporarily_cached,
+        "reading_id": reading.id,
     }
+
+
+@app.get("/api/sensors/demo-sessions/latest")
+async def latest_demo_session_readings(
+    response: Response,
+    demo_session_id: str = Header(alias="X-Demo-Session-ID"),
+) -> dict[str, Any]:
+    """Return only the latest summaries for the exact requested demo code."""
+    response.headers["Cache-Control"] = "no-store, private"
+    try:
+        session = demo_session_store.latest(demo_session_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
+    if session is None:
+        # The same response covers unknown and expired codes to avoid revealing
+        # whether another judging session ever existed.
+        raise HTTPException(status_code=404, detail="Demo session not found or expired.")
+    return {"status": "ok", **session}
 
 
 @app.post("/api/companion/respond", response_model=CompanionResponse)

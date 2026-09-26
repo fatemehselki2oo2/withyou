@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="withyou_primary">#526A5C</color>
+    <color name="withyou_primary_dark">#34483C</color>
+    <color name="withyou_accent">#D98E73</color>
+    <color name="withyou_background">#F8F5EF</color>
+    <color name="withyou_text">#27332C</color>
+</resources>

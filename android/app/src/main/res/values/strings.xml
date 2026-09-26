@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WithYou Health Bridge</string>
+    <string name="health_title">Watch / Health Connect</string>
+    <string name="health_intro">Read small wellness summaries from Health Connect and send only those summaries to WithYou.</string>
+    <string name="privacy_note">WithYou does not diagnose conditions. Sync is manual. Raw heart-rate samples and health history are not uploaded.</string>
+    <string name="request_access">Request read access</string>
+    <string name="sync_summaries">Sync recent summaries</string>
+    <string name="install_health_connect">Install or update Health Connect</string>
+    <string name="status_checking">Checking Health Connect…</string>
+    <string name="results_empty">No summaries synced yet.</string>
+    <string name="rationale_title">Why WithYou requests health access</string>
+    <string name="rationale_body">WithYou reads steps, sleep, and heart rate only after you grant access. The bridge reduces recent records to small summaries on your phone. Sync happens only when you tap the button. It sends the summaries to your configured WithYou backend; it does not upload raw heart-rate samples or your full health history. WithYou is a wellness project and does not provide a diagnosis or medical advice.</string>
+    <string name="close">Close</string>
+</resources>

@@ -90,7 +90,45 @@ export async function saveSensorReading(reading: SensorReading): Promise<SensorR
   const database = await openDatabase()
   const transaction = database.transaction(SENSOR_STORE, 'readwrite')
   const done = transactionDone(transaction)
-  const id = await requestResult(transaction.objectStore(SENSOR_STORE).add(reading)) as number
+  const id = await requestResult(transaction.objectStore(SENSOR_STORE).add(reading)) as number | string
+  await done
+  database.close()
+  return { ...reading, id }
+}
+
+export async function saveSensorReadingIfNew(reading: SensorReading): Promise<SensorReading | null> {
+  const database = await openDatabase()
+  const transaction = database.transaction(SENSOR_STORE, 'readwrite')
+  const done = transactionDone(transaction)
+  const store = transaction.objectStore(SENSOR_STORE)
+
+  if (reading.id != null) {
+    const existing = await requestResult(store.get(reading.id)) as SensorReading | undefined
+    if (existing) {
+      await done
+      database.close()
+      return null
+    }
+  }
+
+  // The server normally supplies a stable ID. This tuple check also protects
+  // older responses or manually authored device payloads that omit one.
+  const sameTimestamp = await requestResult(
+    store.index('timestamp').getAll(IDBKeyRange.only(reading.timestamp)),
+  ) as SensorReading[]
+  const duplicate = sameTimestamp.some((candidate) =>
+    candidate.source === reading.source
+    && candidate.sensor_type === reading.sensor_type
+    && candidate.demo_session_id === reading.demo_session_id
+    && candidate.device_id === reading.device_id,
+  )
+  if (duplicate) {
+    await done
+    database.close()
+    return null
+  }
+
+  const id = await requestResult(store.add(reading)) as number | string
   await done
   database.close()
   return { ...reading, id }

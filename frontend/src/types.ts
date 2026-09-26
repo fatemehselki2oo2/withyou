@@ -10,11 +10,15 @@ export type SensorType =
   | 'sleep'
   | 'mood'
   | 'proximity'
+  | 'steps'
+  | 'heart_rate'
 
 export type SensorMetadata = Record<string, string | number | boolean | null>
 
 export interface SensorReading {
-  id?: number
+  id?: number | string
+  demo_session_id?: string | null
+  device_id?: string | null
   timestamp: string
   source: SensorSource
   sensor_type: SensorType
@@ -23,6 +27,15 @@ export interface SensorReading {
   confidence?: number
   is_simulated: boolean
   metadata: SensorMetadata
+}
+
+export interface HomeSensorSessionResponse {
+  status: 'ok'
+  demo_session_id: string
+  device_id: string
+  updated_at: string | null
+  expires_at: string
+  readings: SensorReading[]
 }
 
 export interface ActivityReading {

@@ -19,6 +19,8 @@ SensorType = Literal[
     "sleep",
     "mood",
     "proximity",
+    "steps",
+    "heart_rate",
 ]
 
 
@@ -26,6 +28,8 @@ class SensorReading(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     id: str | int | None = None
+    demo_session_id: str | None = Field(default=None, min_length=6, max_length=12, pattern=r"^[A-Z0-9]+$")
+    device_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
     timestamp: datetime
     source: SensorSource
     sensor_type: SensorType
@@ -42,6 +46,11 @@ class SensorReading(BaseModel):
             raise ValueError("timestamp must include a timezone")
         return value
 
+    @field_validator("demo_session_id", mode="before")
+    @classmethod
+    def normalize_demo_session_id(cls, value: Any) -> Any:
+        return value.strip().upper() if isinstance(value, str) else value
+
     @field_validator("value")
     @classmethod
     def value_must_be_finite(cls, value: float) -> float:
@@ -51,6 +60,10 @@ class SensorReading(BaseModel):
 
     @model_validator(mode="after")
     def validate_sensor_range_and_metadata(self) -> SensorReading:
+        if self.demo_session_id and self.source != "arduino":
+            raise ValueError("demo_session_id is only supported for Arduino/Pico readings")
+        if self.demo_session_id and not self.device_id:
+            raise ValueError("device_id is required when demo_session_id is provided")
         ranges: dict[str, tuple[float, float]] = {
             "activity": (0, 1),
             "motion": (0, 1),
@@ -61,6 +74,8 @@ class SensorReading(BaseModel):
             "sleep": (0, 24),
             "mood": (0, 1),
             "proximity": (0, 100_000),
+            "steps": (0, 200_000),
+            "heart_rate": (1, 300),
         }
         minimum, maximum = ranges[self.sensor_type]
         if not minimum <= self.value <= maximum:

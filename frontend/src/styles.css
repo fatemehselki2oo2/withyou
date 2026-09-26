@@ -189,6 +189,12 @@ input:focus, textarea:focus { border-color: #729086; box-shadow: 0 0 0 3px rgba(
 .environment-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
 .environment-summary span { display: grid; gap: 4px; padding: 12px; border-radius: 12px; color: #6c7772; background: #f0f2ed; font-size: 11px; }
 .environment-summary strong { color: #253a34; font-size: 17px; }
+.live-sensor-panel { display: grid; gap: 12px; margin-bottom: 16px; padding: 15px; border: 1px solid #d8ddd6; border-radius: 14px; background: #f2f4ef; }
+.live-sensor-panel > div p { margin-top: 4px; color: #6c7772; font-size: 12px; }
+.live-sensor-panel .sensor-message { margin: 0; }
+.pairing-row { display: grid; grid-template-columns: minmax(150px, 1fr) auto auto; align-items: end; gap: 8px; }
+.pairing-row input { font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.simulation-disclosure { margin: 4px 0 12px; padding: 11px 13px; border-radius: 11px; color: #74452b; background: #f5e3d2; font-size: 12px; line-height: 1.45; }
 .demo-panel { background: linear-gradient(135deg, #fbf2e7, #faf9f5); }
 .accent-button { border-color: #d08f62; color: #fff; background: #c97846; }
 .chat-input-row { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px; }
@@ -230,5 +236,6 @@ input:focus, textarea:focus { border-color: #729086; box-shadow: 0 0 0 3px rgba(
   .chat-input-row { grid-template-columns: 1fr; }
   .chat-input-row button { width: 100%; }
   .voice-controls { align-items: flex-start; flex-direction: column; }
+  .pairing-row { grid-template-columns: 1fr; }
 }
 

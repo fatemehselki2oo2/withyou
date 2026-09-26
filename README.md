@@ -13,6 +13,8 @@ WithYou is a privacy-aware wellness companion for people who live alone. It comb
 - Sends only a compact `WellnessContext` and the user's message to the FastAPI companion endpoint.
 - Supports typed companion messages and explicit, push-to-record voice turns.
 - Accepts normalized Arduino/ESP32 readings without permanently storing them server-side.
+- Relays the latest Pico W demo summaries through short-lived, code-paired judging sessions into each judge's local IndexedDB.
+- Includes a minimal Android Health Connect bridge for user-initiated Steps, Sleep, and Heart Rate summary sync.
 - Provides reliable, labeled demo scenarios for judging.
 
 WithYou notices changes in patterns. It does not diagnose conditions.
@@ -20,11 +22,11 @@ WithYou notices changes in patterns. It does not diagnose conditions.
 ## Architecture
 
 ```text
-Phone / Arduino / future Watch / Manual Check-In
+Phone / Arduino / Android Health Connect / Manual Check-In
                     ↓
           Normalized SensorReading
-                    ↓
-             Local IndexedDB
+             ↙             ↘
+      Local IndexedDB    FastAPI acknowledgement
                     ↓
           Local PatternAnalyzer
                     ↓
@@ -37,7 +39,7 @@ Phone / Arduino / future Watch / Manual Check-In
          Text and optional speech
 ```
 
-Personal history remains in IndexedDB whenever possible. The backend receives individual external-device readings for acknowledgement and compact companion context—not the user's full local history.
+Personal history remains in IndexedDB or Health Connect whenever possible. The Android bridge reduces recent health records on the phone and uploads only one small summary per available category. The backend acknowledges external-device readings but does not permanently store their values.
 
 ## Normalized sensor model
 
@@ -58,7 +60,7 @@ Every local or external input uses this shape:
 }
 ```
 
-Supported sources are `phone`, `arduino`, `watch`, and `manual`. Supported types are `activity`, `motion`, `sound_level`, `temperature`, `humidity`, `light`, `sleep`, `mood`, and `proximity`.
+Supported sources are `phone`, `arduino`, `watch`, and `manual`. Supported types are `activity`, `motion`, `sound_level`, `temperature`, `humidity`, `light`, `sleep`, `mood`, `proximity`, `steps`, and `heart_rate`.
 
 Complete ESP32 examples are in [`backend/examples/esp32-readings.json`](backend/examples/esp32-readings.json).
 
@@ -85,7 +87,8 @@ The API key is loaded only by the backend. Voice audio is held in memory during 
 
 - `GET /health` — basic application health
 - `GET /api/sensors/health` — sensor ingestion status and last external source
-- `POST /api/sensors/readings` — validated, stateless external reading acknowledgement
+- `POST /api/sensors/readings` — validated acknowledgement, plus latest-only temporary caching when a Pico demo code is present
+- `GET /api/sensors/demo-sessions/latest` — latest-only Pico W summaries; requires the exact code in `X-Demo-Session-ID`
 - `POST /api/companion/respond` — summarized context plus typed message
 - `POST /api/companion/voice` — bounded temporary audio upload plus summarized context
 
@@ -105,6 +108,7 @@ Copy `.env.example` to `.env` for a project-local configuration, or provide equi
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins | local Vite origins |
 | `MAX_AUDIO_BYTES` | Maximum temporary voice upload | `10485760` |
 | `RATE_LIMIT_PER_MINUTE` | Companion requests per IP | `30` |
+| `DEMO_SESSION_TTL_MINUTES` | Inactivity timeout for in-memory Pico W judging sessions | `240` |
 | `VITE_API_BASE_URL` | Frontend API URL, set in `frontend/.env` | `http://127.0.0.1:8000` |
 
 The backend also detects the existing ignored workspace `.env`. Secrets are never bundled into the frontend.
@@ -165,7 +169,78 @@ Invoke-RestMethod `
   -Body $reading
 ```
 
-The acknowledgement contains `stored: false`. A valid Arduino reading changes the frontend Home Sensor status to connected while the backend process remains active.
+The acknowledgement contains `stored: false`. A valid Arduino reading changes the frontend Home Sensor status to connected while a reading has been received recently (within 90 seconds).
+
+## Raspberry Pi Pico W multi-phone judging demo
+
+The judging path is:
+
+```text
+Pico W → FastAPI's temporary code session → each judge's browser → that phone's IndexedDB
+```
+
+No account is required. Pick a private 6–12 character code, such as a randomized event code, and configure it as `DEMO_SESSION_ID` in [`backend/examples/pico_w_home_sensor.py`](backend/examples/pico_w_home_sensor.py). The first Pico reading automatically creates the in-memory session and binds that code to the Pico's `device_id`. A different device cannot reuse the active code. Codes are never listed by the API, and retrieval requires the exact code in a request header so normal URL access logs do not record it.
+
+The temporary session store lives in one FastAPI process. For the hackathon demo, run a single Render instance/worker so every judge reaches the same in-memory store. A future multi-instance deployment should move only this short-lived latest-summary cache to a shared ephemeral store such as Redis; browsers can continue keeping their own history in IndexedDB.
+
+The backend retains only the newest value for each sensor type in that session. It does not keep raw history. The session expires after four hours without a Pico update by default, and a backend restart clears it immediately.
+
+### Pico W setup
+
+1. Install current MicroPython firmware on the Pico W.
+2. Install the MicroPython `urequests` package if the firmware does not already provide it.
+3. Open [`pico_w_home_sensor.py`](backend/examples/pico_w_home_sensor.py) in Thonny.
+4. Set `WIFI_SSID`, `WIFI_PASSWORD`, and a private `DEMO_SESSION_ID`. Never commit real Wi-Fi credentials.
+5. Save the script to the Pico as `main.py` and run it. It posts temperature, humidity, and light summaries every ten seconds.
+6. On each judge's phone, open WithYou, find **Room Environment**, enter the same code under **Connect to Live Home Sensor**, and tap **Connect**.
+7. Within a few seconds, Home Sensor should show Connected. Each browser imports a reading only once by ID/timestamp, while continuing to poll for newer summaries.
+
+The current script intentionally generates the environmental numbers while using a real Pico W, Wi-Fi, backend, and multi-phone data path. The UI labels them **Simulated environmental value**. These readings never enter Health Connect. Replace only `simulated_environment()` when real external sensors are selected.
+
+## Android Health Connect / Samsung setup
+
+The native bridge is in [`android/`](android/). It is intentionally separate from the PWA, so the manifest, service worker, IndexedDB data, manual inputs, phone sensors, and Arduino-ready path continue to work as before.
+
+### Privacy-first flow
+
+```text
+Galaxy Watch → Samsung Health → Health Connect
+                                  ↓
+                    summarize on the Android phone
+                                  ↓
+       up to 3 real, non-simulated SensorReading objects
+                                  ↓
+             POST /api/sensors/readings on FastAPI
+                                  ↓
+       PWA Sources card shows Watch / Health connected
+```
+
+The bridge is foreground-only and syncs only after a button tap. It requests read access to Steps, Sleep, and Heart Rate—no write, background, or full-history permission. Raw heart-rate samples and raw health history are not uploaded. The backend's health endpoint exposes connection time and reading type, not health values. The prototype remains non-diagnostic.
+
+Health Connect may combine records from Samsung Health, the phone, and other apps the user approved. WithYou therefore labels these readings as real **Health Connect summaries**, not as guaranteed Galaxy Watch measurements.
+
+### Build the bridge
+
+1. Install a current stable Android Studio, Android SDK 36, and a JDK 17-compatible Gradle environment.
+2. Open the [`android/`](android/) folder as an Android Studio project and allow Gradle sync to complete.
+3. The bridge defaults to `https://withyou-1g5l.onrender.com`. To use another public HTTPS backend, set `WITHYOU_API_BASE_URL` in your user Gradle properties or pass `-PWITHYOU_API_BASE_URL=https://...`.
+4. Do not place `OPENAI_API_KEY` or any secret in Gradle properties used by the Android app. Only the public backend URL belongs there.
+5. Run the `app` configuration on a physical Android 9+ phone. Health Connect is built into Android 14+; Android 13 and lower require the Health Connect Play Store app.
+
+The Android project uses stable `androidx.health.connect:connect-client:1.1.0`. See [`android/README.md`](android/README.md) for the bridge's exact summary rules.
+
+### Samsung phone test
+
+1. Pair the Galaxy Watch with Samsung Health and confirm recent steps, sleep, or heart-rate data is visible in Samsung Health.
+2. In Samsung Health, open **Settings → Health Connect**, connect Samsung Health, and allow Samsung Health to write the three data types. Menu wording can vary by Samsung Health version.
+3. On Android 14+, open **Settings → Security and privacy → Privacy controls → Health Connect**. On Android 13 or lower, install/open the Health Connect app from Google Play.
+4. Install/run **WithYou Health Bridge** from Android Studio.
+5. Tap **Request read access**, enable Steps, Sleep, and Heart Rate, and return to the bridge.
+6. Tap **Sync recent summaries**. The screen should list only available summaries and say they were accepted.
+7. Open the deployed WithYou PWA, go to **Sources**, and wait up to 15 seconds. **Watch / Health** should show Connected with the last backend receipt time.
+8. Confirm the manual sleep/mood controls, motion, sound, Home Sensor, companion text/voice, and installed PWA still behave normally.
+
+If no summaries appear, first confirm Samsung Health has written records into Health Connect under **Data and access**, then recheck WithYou Health Bridge's three read permissions. The backend connection status is prototype in-memory state and resets when the Render process restarts.
 
 ## Security and deployment notes
 

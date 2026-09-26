@@ -7,7 +7,15 @@ import {
   initializeDatabase,
   saveReading,
   saveSensorReading,
+  saveSensorReadingIfNew,
 } from './db'
+import {
+  fetchLatestHomeSensor,
+  HOME_SENSOR_POLL_MS,
+  HOME_SENSOR_RECENT_MS,
+  isValidDemoCode,
+  normalizeDemoCode,
+} from './homeSensor'
 import { startMotionSession, type MotionSession } from './motion'
 import { analyzePatterns, buildWellnessContext, latestReading } from './patternAnalyzer'
 import { measureEnvironmentSound, type SoundClassification } from './sound'
@@ -22,6 +30,11 @@ import './styles.css'
 
 type SensorStatus = 'awaiting' | 'starting' | 'connected' | 'unavailable' | 'stopped'
 type SoundStatus = 'awaiting' | 'measuring' | 'connected' | 'unavailable'
+type ExternalSourceHealth = {
+  connected?: boolean
+  last_reading_at?: string | null
+  last_sensor_type?: string | null
+}
 
 const DEMO_LEVELS: Record<ActivityState, number> = {
   still: 0.08,
@@ -125,7 +138,14 @@ export default function App() {
   const [sleepMessage, setSleepMessage] = useState('')
   const [customMood, setCustomMood] = useState('')
   const [storageError, setStorageError] = useState<string | null>(null)
-  const [homeConnected, setHomeConnected] = useState(false)
+  const [homeApiConnected, setHomeApiConnected] = useState(false)
+  const [demoCodeInput, setDemoCodeInput] = useState('')
+  const [homeSessionId, setHomeSessionId] = useState('')
+  const [homeSessionConnected, setHomeSessionConnected] = useState(false)
+  const [homeSessionUpdatedAt, setHomeSessionUpdatedAt] = useState<string | null>(null)
+  const [homeSessionSimulated, setHomeSessionSimulated] = useState(false)
+  const [homeSessionMessage, setHomeSessionMessage] = useState('Enter the Pico W demo code to receive live readings on this phone.')
+  const [watchHealth, setWatchHealth] = useState<ExternalSourceHealth>({})
   const [companionInput, setCompanionInput] = useState('')
   const [companionResult, setCompanionResult] = useState<CompanionResult | null>(null)
   const [companionBusy, setCompanionBusy] = useState(false)
@@ -165,23 +185,100 @@ export default function App() {
 
   useEffect(() => {
     let active = true
-    const checkHomeSensor = async () => {
+    const checkExternalSensors = async () => {
       try {
         const response = await fetch(apiUrl('/api/sensors/health'))
         if (!response.ok) return
-        const payload = await response.json() as { last_source?: string | null }
-        if (active) setHomeConnected(payload.last_source === 'arduino')
+        const payload = await response.json() as {
+          last_source?: string | null
+          last_reading_at?: string | null
+          last_sensor_type?: string | null
+          sources?: Record<string, ExternalSourceHealth>
+        }
+        if (active) {
+          // The fallback keeps this UI compatible with an older backend during deployment.
+          const arduinoHealth = payload.sources?.arduino
+          const arduinoLastSeen = arduinoHealth?.last_reading_at
+            ?? (payload.last_source === 'arduino' ? payload.last_reading_at : null)
+          const arduinoLastSeenMs = arduinoLastSeen ? new Date(arduinoLastSeen).getTime() : 0
+          setHomeApiConnected(Boolean(
+            (arduinoHealth?.connected ?? payload.last_source === 'arduino')
+            && arduinoLastSeenMs > 0
+            && Date.now() - arduinoLastSeenMs <= HOME_SENSOR_RECENT_MS,
+          ))
+          setWatchHealth(payload.sources?.watch ?? (payload.last_source === 'watch'
+            ? {
+                connected: true,
+                last_reading_at: payload.last_reading_at,
+                last_sensor_type: payload.last_sensor_type,
+              }
+            : {}))
+        }
       } catch {
-        if (active) setHomeConnected(false)
+        if (active) {
+          setHomeApiConnected(false)
+          setWatchHealth({})
+        }
       }
     }
-    void checkHomeSensor()
-    const interval = window.setInterval(() => void checkHomeSensor(), 15_000)
+    void checkExternalSensors()
+    const interval = window.setInterval(() => void checkExternalSensors(), 15_000)
     return () => {
       active = false
       window.clearInterval(interval)
     }
   }, [])
+
+  useEffect(() => {
+    if (!homeSessionId) return
+    let active = true
+    let polling = false
+
+    const pollHomeSensor = async () => {
+      if (polling) return
+      polling = true
+      try {
+        const payload = await fetchLatestHomeSensor(homeSessionId)
+        if (!active) return
+
+        const updatedAt = payload.updated_at
+        const updatedTime = updatedAt ? new Date(updatedAt).getTime() : 0
+        const recent = updatedTime > 0 && Date.now() - updatedTime <= HOME_SENSOR_RECENT_MS
+        const imported: SensorReading[] = []
+        for (const reading of payload.readings) {
+          try {
+            const saved = await saveSensorReadingIfNew(reading)
+            if (saved) imported.push(saved)
+          } catch {
+            setStorageError('A live home-sensor reading could not be saved to IndexedDB.')
+          }
+        }
+        if (!active) return
+        if (imported.length) setReadings((current) => [...current, ...imported])
+        setHomeSessionConnected(recent)
+        setHomeSessionUpdatedAt(updatedAt)
+        setHomeSessionSimulated(payload.readings.some((reading) => reading.is_simulated))
+        setHomeSessionMessage(recent
+          ? `Receiving ${payload.device_id} summaries. New readings are saved in this browser.`
+          : `Session ${homeSessionId} is available, but no recent Pico reading has arrived.`)
+      } catch (error) {
+        if (!active) return
+        setHomeSessionConnected(false)
+        setHomeSessionMessage(error instanceof Error && error.message === 'demo_session_missing'
+          ? `Waiting for a Pico W using code ${homeSessionId}…`
+          : 'The live sensor service is temporarily unavailable. Local features still work.')
+      } finally {
+        polling = false
+      }
+    }
+
+    void pollHomeSensor()
+    const interval = window.setInterval(() => void pollHomeSensor(), HOME_SENSOR_POLL_MS)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [homeSessionId])
 
   const pattern = useMemo(() => analyzePatterns(readings, baseline), [readings, baseline])
   const wellnessContext = useMemo(() => buildWellnessContext(readings, baseline, pattern), [readings, baseline, pattern])
@@ -195,6 +292,29 @@ export default function App() {
   const activityDifference = activity
     ? ((activity.value - baseline.normal_activity_level) / baseline.normal_activity_level) * 100
     : null
+  const homeConnected = homeSessionId ? homeSessionConnected : homeApiConnected
+
+  const connectHomeSensor = () => {
+    const code = normalizeDemoCode(demoCodeInput)
+    setDemoCodeInput(code)
+    if (!isValidDemoCode(code)) {
+      setHomeSessionMessage('Demo codes use 6–12 letters or numbers.')
+      return
+    }
+    setHomeSessionConnected(false)
+    setHomeSessionUpdatedAt(null)
+    setHomeSessionSimulated(false)
+    setHomeSessionMessage(`Looking for Pico W session ${code}…`)
+    setHomeSessionId(code)
+  }
+
+  const disconnectHomeSensor = () => {
+    setHomeSessionId('')
+    setHomeSessionConnected(false)
+    setHomeSessionUpdatedAt(null)
+    setHomeSessionSimulated(false)
+    setHomeSessionMessage('Disconnected. Readings already imported remain in this browser’s IndexedDB.')
+  }
 
   const recordSensor = async (reading: SensorReading) => {
     setReadings((current) => [...current, reading])
@@ -422,6 +542,8 @@ export default function App() {
       setCompanionResult(null)
       setAudioUrl(null)
       setStorageError(null)
+      setDemoCodeInput('')
+      disconnectHomeSensor()
     } catch {
       setStorageError('Local data could not be deleted in this browser.')
     }
@@ -535,7 +657,16 @@ export default function App() {
       </div>
 
       <section className="card" aria-labelledby="environment-heading">
-        <div className="section-heading"><div><p className="eyebrow">Arduino-ready schema</p><h2 id="environment-heading">Room Environment</h2></div><span className="pill demo">Simulated controls</span></div>
+        <div className="section-heading"><div><p className="eyebrow">Pico W · local-first</p><h2 id="environment-heading">Room Environment</h2></div><span className="pill demo">{homeSessionId && homeSessionSimulated ? 'Simulated environmental value' : 'Simulated controls'}</span></div>
+        <div className="live-sensor-panel">
+          <div><strong>Connect to Live Home Sensor</strong><p>Enter the short code shown with the Pico W demo. No account is required.</p></div>
+          <form className="pairing-row" onSubmit={(event) => { event.preventDefault(); connectHomeSensor() }}>
+            <label>Demo code<input aria-label="Home sensor demo code" value={demoCodeInput} maxLength={12} autoCapitalize="characters" autoComplete="off" placeholder="WITHYOU1" onChange={(event) => setDemoCodeInput(normalizeDemoCode(event.target.value))} /></label>
+            <button className="primary" type="submit">Connect</button>
+            {homeSessionId && <button type="button" onClick={disconnectHomeSensor}>Disconnect</button>}
+          </form>
+          <p className={`sensor-message ${homeSessionId && !homeSessionConnected ? 'warning' : ''}`}>{homeSessionMessage}</p>
+        </div>
         <div className="environment-summary">
           <span>Temperature <strong>{temperature ? `${temperature.value} °F` : '—'}</strong></span>
           <span>Humidity <strong>{humidity ? `${humidity.value}%` : '—'}</strong></span>
@@ -548,7 +679,8 @@ export default function App() {
           <button onClick={() => void recordSensor(environmentReading('light', 35, 'lux', 'low light'))}>Low Light</button>
           <button onClick={() => void recordSensor(environmentReading('humidity', 78, 'percent', 'high humidity'))}>High Humidity</button>
         </div>
-        <p className="microcopy">Phones are not treated as room-temperature sensors. These readings use tomorrow’s external-device format.</p>
+        {homeSessionId && homeSessionSimulated && <p className="simulation-disclosure"><strong>Simulated environmental value:</strong> the Pico W connection is real, while the current temperature, humidity, and light values are generated for the demo.</p>}
+        <p className="microcopy">Fetched Pico summaries are copied into this browser’s IndexedDB. The temporary backend session keeps only the latest value per sensor type.</p>
       </section>
 
       <section className="card demo-panel" aria-labelledby="demo-heading">
@@ -584,8 +716,8 @@ export default function App() {
         <div className="source-grid">
           <div className="source-item"><span className={`status-dot ${motionStatus === 'connected' ? 'online' : ''}`} /><div><strong>Phone Motion</strong><span>{motionStatus === 'connected' ? 'Connected' : 'Permission required'}</span></div></div>
           <div className="source-item"><span className={`status-dot ${soundStatus === 'connected' ? 'online' : ''}`} /><div><strong>Phone Sound</strong><span>{soundStatus === 'connected' ? 'Connected' : 'Permission required'}</span></div></div>
-          <div className="source-item muted"><span className="status-dot" /><div><strong>Watch</strong><span>Not connected</span></div></div>
-          <div className={`source-item ${homeConnected ? '' : 'muted'}`}><span className={`status-dot ${homeConnected ? 'online' : ''}`} /><div><strong>Home Sensor</strong><span>{homeConnected ? 'Connected via API' : 'Not connected'}</span></div></div>
+          <div className={`source-item ${watchHealth.connected ? '' : 'muted'}`}><span className={`status-dot ${watchHealth.connected ? 'online' : ''}`} /><div><strong>Watch / Health</strong><span>{watchHealth.connected ? `Connected via Health Connect · ${formatTime(watchHealth.last_reading_at ?? undefined)}` : 'Not connected'}</span></div></div>
+          <div className={`source-item ${homeConnected ? '' : 'muted'}`}><span className={`status-dot ${homeConnected ? 'online' : ''}`} /><div><strong>Home Sensor</strong><span>{homeSessionId ? (homeConnected ? `Connected · ${homeSessionSimulated ? 'simulated values' : 'live values'} · ${formatTime(homeSessionUpdatedAt ?? undefined)}` : `Waiting for ${homeSessionId}`) : homeConnected ? 'Connected via API' : 'Not connected'}</span></div></div>
         </div>
       </section>
 

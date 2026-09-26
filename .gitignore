@@ -5,4 +5,10 @@ dist/
 __pycache__/
 *.db
 .venv/
+android/.gradle/
+android/.android-user-home/
+android/.idea/
+android/local.properties
+android/**/build/
 
+android/.kotlin/
