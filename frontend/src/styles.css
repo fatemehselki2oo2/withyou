@@ -417,6 +417,15 @@ input:focus, textarea:focus { border-color: #729086; box-shadow: 0 0 0 3px rgba(
 .health-bridge-message span, .health-bridge-message a { font-size: 11px; line-height: 1.45; }
 .health-bridge-message a { width: fit-content; color: #315e54; font-weight: 800; }
 .health-setup-guide h4 { margin: 0; font-size: 14px; }
+.health-setup-guide p { margin: 0; color: #68736e; font-size: 12px; line-height: 1.55; }
+.health-install-card { display: grid; gap: 14px; margin-top: 14px; padding: 17px; border: 1px solid #d7ddd5; border-radius: 17px; background: #fffdf8; box-shadow: 0 9px 24px rgba(39, 60, 54, .07); }
+.health-install-card h4 { margin: 3px 0 5px; font-family: 'Newsreader', Georgia, serif; color: #273c36; font-size: 21px; line-height: 1.15; }
+.health-install-card p { margin: 0; color: #68736e; font-size: 12px; line-height: 1.55; }
+.health-install-card > .button-link { width: 100%; }
+.health-install-card .microcopy a { color: #315e54; font-weight: 800; }
+.health-install-steps { display: grid; gap: 8px; margin: 0; padding: 0; counter-reset: install-step; list-style: none; }
+.health-install-steps li { display: flex; align-items: center; gap: 9px; color: #4f615a; font-size: 12px; font-weight: 700; counter-increment: install-step; }
+.health-install-steps li::before { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #fff; background: #738775; content: counter(install-step); font-size: 11px; }
 .setup-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: setup-step; }
 .setup-steps li { display: grid; grid-template-columns: 28px 1fr; column-gap: 9px; padding: 11px; border-radius: 11px; background: #eff1ec; counter-increment: setup-step; }
 .setup-steps li::before { display: grid; width: 24px; height: 24px; grid-row: 1 / span 2; place-items: center; border-radius: 50%; color: #fff; background: #45655d; content: counter(setup-step); font-size: 11px; font-weight: 800; }

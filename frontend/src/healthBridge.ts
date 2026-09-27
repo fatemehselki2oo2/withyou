@@ -1,5 +1,7 @@
 export const HEALTH_BRIDGE_PACKAGE = 'com.withyou.healthbridge'
-export const HEALTH_BRIDGE_INSTALL_HELP_URL = 'https://github.com/fatemehselki2oo2/withyou/tree/main/android'
+export const HEALTH_HELPER_APK_NAME = 'withyou-health-helper.apk'
+export const HEALTH_HELPER_APK_URL = `https://github.com/fatemehselki2oo2/withyou/releases/latest/download/${HEALTH_HELPER_APK_NAME}`
+export const HEALTH_HELPER_INSTALL_HELP_URL = 'https://github.com/fatemehselki2oo2/withyou/tree/main/android'
 
 export function healthBridgeIntentUrl(currentUrl: string): string {
   const fallback = new URL(currentUrl)

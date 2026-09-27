@@ -32,7 +32,8 @@ import {
 } from './homeSensor'
 import { fetchHealthConnectSummaries } from './healthConnect'
 import {
-  HEALTH_BRIDGE_INSTALL_HELP_URL,
+  HEALTH_HELPER_APK_URL,
+  HEALTH_HELPER_INSTALL_HELP_URL,
   healthBridgeIntentUrl,
   healthBridgeReturnState,
 } from './healthBridge'
@@ -193,7 +194,7 @@ export default function App() {
   const [healthGuideStarted, setHealthGuideStarted] = useState(healthBridgeReturn != null)
   const [healthBridgeMessage, setHealthBridgeMessage] = useState(() => {
     if (healthBridgeReturn === 'not_installed') {
-      return 'The WithYou Health Bridge did not open. It may not be installed on this phone.'
+      return 'To connect your health data, install the WithYou Health Helper.'
     }
     if (healthBridgeReturn === 'sync_complete') {
       return 'Health sync finished. WithYou is checking for your compact summaries now.'
@@ -796,7 +797,7 @@ export default function App() {
     healthState,
     healthDetail: healthState === 'connected'
       ? `Last synced ${formatTime(healthLastSyncedAt)}`
-      : healthState === 'sync_needed' ? 'Open the Android bridge to sync' : 'Connect on a supported Android phone',
+      : healthState === 'sync_needed' ? 'Open WithYou Health Helper to sync' : 'Connect on a supported Android phone',
     homeState: homeRailState,
     homeDetail: homeSessionId ? (homeSessionUpdatedAt ? homeSessionFreshness.label : `Pairing ${homeSessionId}`) : 'Connect with a demo code',
     checkInDetail: mood ? `Last check-in ${formatTime(mood.timestamp)}` : 'Sleep and mood are available',
@@ -1029,28 +1030,29 @@ export default function App() {
         {activeSourcePanel === 'health' && <div className="panel-stack">
           <section>
             <div className="panel-section-heading"><div><p className="eyebrow">Android health</p><h3>{healthState === 'connected' ? 'Latest compact summaries' : 'Set up Health Connect'}</h3></div><span className={`status-label ${healthState === 'connected' ? 'live' : healthState === 'sync_needed' ? 'offline' : 'muted'}`}>{healthState === 'connected' ? 'Connected · synced' : healthState === 'sync_needed' ? 'Sync needed' : 'Not connected'}</span></div>
-            <div className={`source-status-alert ${healthState === 'connected' ? 'success' : healthState === 'sync_needed' ? 'attention' : 'muted'}`}><strong>{healthState === 'connected' ? `Last synced ${formatTime(healthLastSyncedAt)}` : healthState === 'sync_needed' ? 'Health access may be ready, but WithYou needs a fresh sync' : 'Connect from a supported Android phone'}</strong><span>{healthState === 'connected' ? 'Only compact current and 30-day baseline summaries are available here.' : 'The separate WithYou Health Bridge requests read-only access to steps, sleep, and heart rate.'}</span></div>
+            <div className={`source-status-alert ${healthState === 'connected' ? 'success' : healthState === 'sync_needed' ? 'attention' : 'muted'}`}><strong>{healthState === 'connected' ? `Last synced ${formatTime(healthLastSyncedAt)}` : healthState === 'sync_needed' ? 'Health needs a fresh sync' : 'Connect from a supported Android phone'}</strong><span>{healthState === 'connected' ? 'Only compact current and 30-day baseline summaries are available here.' : 'WithYou Health Helper securely brings in compact steps, sleep, and heart-rate summaries when you choose to sync.'}</span></div>
             {healthState === 'connected' && <dl className="health-summary-grid">
               <div><dt>Steps</dt><dd>{currentHealthMetrics.steps ? Math.round(currentHealthMetrics.steps.value).toLocaleString() : 'Not available'}</dd></div>
               <div><dt>Sleep</dt><dd>{currentHealthMetrics.sleep ? `${currentHealthMetrics.sleep.value.toFixed(1)} h` : 'Not available'}</dd></div>
               <div><dt>Heart rate</dt><dd>{currentHealthMetrics.heart_rate ? `${Math.round(currentHealthMetrics.heart_rate.value)} bpm` : 'Not available'}</dd></div>
             </dl>}
-            {healthState !== 'connected' && <a className="button-link primary" href={healthBridgeLink} onClick={() => {
+            {healthState !== 'connected' && healthBridgeReturn !== 'not_installed' && <a className="button-link primary" href={healthBridgeLink} onClick={() => {
               setHealthGuideStarted(true)
-              setHealthBridgeMessage('Opening the WithYou Health Bridge… If Android keeps you here, use the hackathon install help below.')
-            }}>{healthGuideStarted ? 'Open Health Bridge' : 'Connect Health'}</a>}
-            {healthState !== 'connected' && healthBridgeMessage && <div className="health-bridge-message" role="status"><strong>{healthBridgeMessage}</strong><span>The bridge is a separate hackathon Android app and is not listed in an app store.</span><a href={HEALTH_BRIDGE_INSTALL_HELP_URL} target="_blank" rel="noreferrer">View hackathon install instructions</a></div>}
-            {(healthGuideStarted || healthState === 'sync_needed') && healthState !== 'connected' && <div className="health-setup-guide">
-              <h4>On your Android phone</h4>
-              <ol className="setup-steps">
-                <li><strong>Check your health source.</strong><span>Make sure Samsung Health or another app has recent steps, sleep, or heart-rate data.</span></li>
-                <li><strong>Allow Health Connect access.</strong><span>In Health Connect, let the source app write those records.</span></li>
-                <li><strong>Open the WithYou Health Bridge.</strong><span>The Connect Health button opens it directly when it is installed.</span></li>
-                <li><strong>Allow and sync.</strong><span>Grant Steps, Sleep, and Heart rate access. The bridge syncs compact summaries and returns here automatically.</span></li>
+              setHealthBridgeMessage('Opening WithYou Health Helper…')
+            }}>{healthGuideStarted ? 'Open WithYou Health Helper' : 'Connect Health'}</a>}
+            {healthState !== 'connected' && healthBridgeMessage && healthBridgeReturn !== 'not_installed' && <div className="health-bridge-message" role="status"><strong>{healthBridgeMessage}</strong><span>Follow the permission and sync steps in the helper. WithYou checks again as soon as you return.</span></div>}
+            {healthState !== 'connected' && healthBridgeReturn === 'not_installed' && <div className="health-install-card" role="status">
+              <div><p className="eyebrow">One small Android helper</p><h4>{healthBridgeMessage}</h4><p>It connects your phone’s Health Connect data with WithYou so your steps, sleep, and heart-rate summaries can appear here.</p></div>
+              <a className="button-link primary" href={HEALTH_HELPER_APK_URL} target="_blank" rel="noreferrer">Install WithYou Health Helper</a>
+              <ol className="health-install-steps">
+                <li>Open the downloaded file</li>
+                <li>Tap Install when Android asks</li>
+                <li>Return to WithYou</li>
               </ol>
-              <a className="button-link" href="intent:#Intent;action=android.health.connect.action.HEALTH_CONNECT_SETTINGS;end">Open Health Connect settings</a>
-              <p className="microcopy">Android only. If the settings button does not open, go to Settings → Security &amp; privacy → Health Connect. WithYou checks immediately when this page becomes active again and continues checking every 15 seconds.</p>
+              <a className="button-link" href={healthBridgeLink}>Open WithYou Health Helper</a>
+              <p className="microcopy">Android will always show its own install confirmation. This hackathon app is not listed in an app store. <a href={HEALTH_HELPER_INSTALL_HELP_URL} target="_blank" rel="noreferrer">Need install help?</a></p>
             </div>}
+            {healthState !== 'connected' && healthState === 'sync_needed' && healthBridgeReturn !== 'not_installed' && <div className="health-setup-guide"><h4>Continue in WithYou Health Helper</h4><p>Review Health permissions, then tap Sync health data. The helper can open the right Android settings when needed.</p><a className="button-link" href={healthBridgeLink}>Open WithYou Health Helper</a></div>}
             <button type="button" onClick={() => setHealthRefreshKey((value) => value + 1)}>{healthState === 'connected' ? 'Refresh summaries' : 'Check sync again'}</button>
           </section>
         </div>}

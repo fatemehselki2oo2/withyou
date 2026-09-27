@@ -5,6 +5,28 @@
         <item name="colorPrimaryVariant">@color/withyou_primary_dark</item>
         <item name="colorSecondary">@color/withyou_accent</item>
         <item name="android:windowBackground">@color/withyou_background</item>
+        <item name="android:statusBarColor">@color/withyou_background</item>
+        <item name="android:navigationBarColor">@color/withyou_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
         <item name="android:fontFamily">sans</item>
+    </style>
+
+    <style name="Widget.WithYou.Button.Primary" parent="Widget.MaterialComponents.Button">
+        <item name="android:minHeight">52dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="backgroundTint">@color/withyou_primary_dark</item>
+        <item name="cornerRadius">16dp</item>
+    </style>
+
+    <style name="Widget.WithYou.Button.Secondary" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/withyou_primary_dark</item>
+        <item name="cornerRadius">15dp</item>
+        <item name="strokeColor">@color/withyou_border</item>
     </style>
 </resources>

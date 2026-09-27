@@ -1,15 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WithYou Health Bridge</string>
-    <string name="health_title">Watch / Health Connect</string>
-    <string name="health_intro">Read small wellness summaries from Health Connect and send only those summaries to WithYou.</string>
-    <string name="privacy_note">WithYou does not diagnose conditions. Sync is manual. Raw heart-rate samples and health history are not uploaded.</string>
-    <string name="request_access">Request read access</string>
-    <string name="sync_summaries">Sync recent summaries</string>
+    <string name="app_name">WithYou Health Helper</string>
+    <string name="brand_name">WithYou</string>
+    <string name="helper_label">HEALTH HELPER</string>
+    <string name="health_title">Connect health data</string>
+    <string name="health_intro">Bring your steps, sleep, and heart-rate summaries into WithYou when you choose.</string>
+    <string name="privacy_note">Only compact summaries are shared with WithYou. Your detailed health history stays in Health Connect. Sync happens only while this helper is open.</string>
+    <string name="status_label_checking">GETTING READY</string>
+    <string name="status_checking">Checking your health connection…</string>
+    <string name="status_detail_checking">This should only take a moment.</string>
+    <string name="request_access">Allow health access</string>
+    <string name="sync_summaries">Sync health data</string>
     <string name="install_health_connect">Install or update Health Connect</string>
-    <string name="status_checking">Checking Health Connect…</string>
-    <string name="results_empty">No summaries synced yet.</string>
+    <string name="open_health_settings">Review health permissions</string>
+    <string name="return_to_withyou">Return to WithYou</string>
+    <string name="results_title">YOUR LATEST SYNC</string>
+    <string name="results_empty">No health summaries synced yet.</string>
     <string name="rationale_title">Why WithYou requests health access</string>
-    <string name="rationale_body">WithYou reads steps, sleep, and heart rate only after you grant access. The bridge reduces recent records to small summaries on your phone. Sync happens only when you tap the button. It sends the summaries to your configured WithYou backend; it does not upload raw heart-rate samples or your full health history. WithYou is a wellness project and does not provide a diagnosis or medical advice.</string>
+    <string name="rationale_body">WithYou reads steps, sleep, and heart rate only after you grant access. This helper turns recent records into small summaries on your phone. Sync happens only while the helper is open. It does not upload individual heart-rate samples or your full health history. WithYou is a wellness project and does not provide a diagnosis or medical advice.</string>
     <string name="close">Close</string>
 </resources>

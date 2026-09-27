@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="withyou_primary">#526A5C</color>
-    <color name="withyou_primary_dark">#34483C</color>
-    <color name="withyou_accent">#D98E73</color>
-    <color name="withyou_background">#F8F5EF</color>
-    <color name="withyou_text">#27332C</color>
+    <color name="withyou_primary_dark">#23463F</color>
+    <color name="withyou_moss">#7D927E</color>
+    <color name="withyou_accent">#D79B70</color>
+    <color name="withyou_background">#F4F1EA</color>
+    <color name="withyou_surface">#FFFDF8</color>
+    <color name="withyou_surface_soft">#ECEFE9</color>
+    <color name="withyou_border">#D7DDD5</color>
+    <color name="withyou_text">#273C36</color>
+    <color name="withyou_text_muted">#66736E</color>
+    <color name="withyou_success">#3D755F</color>
+    <color name="withyou_warning">#9A633F</color>
+    <color name="white">#FFFFFF</color>
 </resources>

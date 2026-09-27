@@ -3,6 +3,8 @@ import test from 'node:test'
 
 import {
   HEALTH_BRIDGE_PACKAGE,
+  HEALTH_HELPER_APK_NAME,
+  HEALTH_HELPER_APK_URL,
   healthBridgeIntentUrl,
   healthBridgeReturnState,
 } from '../src/healthBridge.ts'
@@ -23,4 +25,14 @@ test('recognizes bridge-not-installed and completed-sync returns', () => {
   assert.equal(healthBridgeReturnState('?health_bridge=not_installed'), 'not_installed')
   assert.equal(healthBridgeReturnState('?health_sync=complete'), 'sync_complete')
   assert.equal(healthBridgeReturnState('?other=value'), null)
+})
+
+test('uses a stable public GitHub Release path for the helper APK', () => {
+  const url = new URL(HEALTH_HELPER_APK_URL)
+  assert.equal(url.protocol, 'https:')
+  assert.equal(url.hostname, 'github.com')
+  assert.equal(
+    url.pathname,
+    `/fatemehselki2oo2/withyou/releases/latest/download/${HEALTH_HELPER_APK_NAME}`,
+  )
 })

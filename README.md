@@ -14,7 +14,7 @@ WithYou is a privacy-aware wellness companion for people who live alone. It comb
 - Supports typed companion messages and explicit, push-to-record voice turns.
 - Accepts normalized Arduino/ESP32 readings without permanently storing them server-side.
 - Relays the latest Pico W demo summaries through short-lived, code-paired judging sessions into each judge's local IndexedDB.
-- Includes a minimal Android Health Connect bridge for user-initiated Steps, Sleep, and Heart Rate summary sync.
+- Includes a minimal Android Health Helper for user-initiated Steps, Sleep, and Heart Rate summary sync.
 - Provides reliable, labeled demo scenarios for judging.
 
 WithYou notices changes in patterns. It does not diagnose conditions.
@@ -39,7 +39,7 @@ Phone / Arduino / Android Health Connect / Manual Check-In
          Text and optional speech
 ```
 
-Personal history remains in IndexedDB or Health Connect whenever possible. The Android bridge reduces recent health records on the phone and uploads only compact current/baseline summaries. The backend keeps at most six of those summaries in process memory for the frontend and never retains raw Health Connect history.
+Personal history remains in IndexedDB or Health Connect whenever possible. The Android Health Helper reduces recent health records on the phone and uploads only compact current/baseline summaries. The backend keeps at most six of those summaries in process memory for the frontend and never retains raw Health Connect history.
 
 ## Normalized sensor model
 
@@ -200,7 +200,7 @@ The current script intentionally generates the environmental numbers while using
 
 ## Android Health Connect / Samsung setup
 
-The native bridge is in [`android/`](android/). It is intentionally separate from the PWA, so the manifest, service worker, IndexedDB data, manual inputs, phone sensors, and Arduino-ready path continue to work as before.
+The native **WithYou Health Helper** is in [`android/`](android/). It is intentionally separate from the PWA, so the manifest, service worker, IndexedDB data, manual inputs, phone sensors, and Arduino-ready path continue to work as before.
 
 ### Privacy-first flow
 
@@ -216,7 +216,7 @@ Galaxy Watch → Samsung Health → Health Connect
        PWA Sources card shows Watch / Health connected
 ```
 
-The bridge is foreground-only and syncs only after a button tap. It requests read access to Steps, Sleep, and Heart Rate—no write permission and no background sync. On the phone, it keeps today's steps, the latest completed full sleep, and the recent heart-rate average, then computes personal 30-day averages for steps, completed sleep, and heart rate. Sleep uses full parent-session intervals and merges overlapping or closely adjacent fragments instead of selecting a tiny final fragment. Raw daily values, sleep sessions/stages, heart-rate samples, and raw health history are not uploaded. The backend keeps only the latest current/baseline pair for each of the three metrics in a six-slot in-memory cache. The frontend fetches those compact summaries, explicitly separates current values from baselines, and falls back to demo values when a personal baseline is unavailable. The prototype remains non-diagnostic.
+The helper is foreground-only and syncs only after a user opens it. It requests read access to Steps, Sleep, and Heart Rate—no write permission and no background sync. On the phone, it keeps today's steps, the latest completed full sleep, and the recent heart-rate average, then computes personal 30-day averages for steps, completed sleep, and heart rate. Sleep uses full parent-session intervals and merges overlapping or closely adjacent fragments instead of selecting a tiny final fragment. Raw daily values, sleep sessions/stages, heart-rate samples, and raw health history are not uploaded. The backend keeps only the latest current/baseline pair for each of the three metrics in a six-slot in-memory cache. The frontend fetches those compact summaries, explicitly separates current values from baselines, and falls back to demo values when a personal baseline is unavailable. The prototype remains non-diagnostic.
 
 Each uploaded summary identifies `provider: health_connect`, `summary_kind: current` or `baseline`, and `raw_history_uploaded: false`. Baseline metadata contains only aggregate details such as the contributing count, range, and standard deviation.
 
@@ -242,30 +242,31 @@ The report generator consumes the same interpreted `WellnessContext`, activity-f
 
 Every report is labeled **For discussion with a healthcare professional — not a diagnosis.** It contains no raw Health Connect history, sleep stages, individual heart-rate samples, or full daily histories.
 
-### Build the bridge
+### Build the Health Helper
 
 1. Install a current stable Android Studio, Android SDK 36, and a JDK 17-compatible Gradle environment.
 2. Open the [`android/`](android/) folder as an Android Studio project and allow Gradle sync to complete.
-3. The bridge defaults to `https://withyou-1g5l.onrender.com`. To use another public HTTPS backend, set `WITHYOU_API_BASE_URL` in your user Gradle properties or pass `-PWITHYOU_API_BASE_URL=https://...`.
+3. The helper defaults to `https://withyou-1g5l.onrender.com`. To use another public HTTPS backend, set `WITHYOU_API_BASE_URL` in your user Gradle properties or pass `-PWITHYOU_API_BASE_URL=https://...`.
 4. Do not place `OPENAI_API_KEY` or any secret in Gradle properties used by the Android app. Only the public backend URL belongs there.
 5. Run the `app` configuration on a physical Android 9+ phone. Health Connect is built into Android 14+; supported older Android versions require the Health Connect provider app.
-6. The production build returns to `https://withyou-nine.vercel.app` after a web-started sync. For another public frontend, set the non-secret `WITHYOU_WEB_URL` Gradle property. The bridge is a hackathon build and has no app-store listing.
+6. The production build returns to `https://withyou-nine.vercel.app` after a web-started sync. For another public frontend, set the non-secret `WITHYOU_WEB_URL` Gradle property. The helper is a hackathon build and has no app-store listing.
+7. The website’s install action expects a GitHub Release asset named `withyou-health-helper.apk` at `releases/latest/download/withyou-health-helper.apk`. Publishing that asset is a separate, explicit release step; the current debug build is suitable only for intentional hackathon sideloading.
 
-The Android project uses stable `androidx.health.connect:connect-client:1.1.0`. See [`android/README.md`](android/README.md) for the bridge's exact summary rules.
+The Android project uses stable `androidx.health.connect:connect-client:1.1.0`. See [`android/README.md`](android/README.md) for the helper's exact summary rules.
 
 ### Samsung phone test
 
 1. Pair the Galaxy Watch with Samsung Health and confirm recent steps, sleep, or heart-rate data is visible in Samsung Health.
 2. In Samsung Health, open **Settings → Health Connect**, connect Samsung Health, and allow Samsung Health to write the three data types. Menu wording can vary by Samsung Health version.
 3. On Android 14+, open **Settings → Security and privacy → Privacy controls → Health Connect**. On Android 13 or lower, install/open the Health Connect app from Google Play.
-4. Install/run **WithYou Health Bridge** from Android Studio. It is not published in an app store.
-5. Open `https://withyou-nine.vercel.app` in Chrome on the same phone and tap **Connect Health**. Android should open the bridge directly.
-6. Enable Steps, Sleep, and Heart Rate when Android asks. The bridge should perform one foreground sync, list only compact available summaries, and return to WithYou.
+4. Install/run **WithYou Health Helper** from Android Studio. It is not published in an app store.
+5. Open `https://withyou-nine.vercel.app` in Chrome on the same phone and tap **Connect Health**. Android should open the helper directly.
+6. Enable Steps, Sleep, and Heart Rate when Android asks. The helper should perform one foreground sync, list only compact available summaries, and return to WithYou.
 7. The PWA should check immediately, then continue polling every 15 seconds. **Health** should change to Connected / Synced and show the latest steps, sleep, and heart-rate summaries without a manual refresh.
-8. If the bridge is not installed, confirm the PWA stays open, explains that no app-store listing exists, and links to the hackathon Android install instructions.
+8. If the helper is not installed, confirm the PWA stays open, shows the single **Install WithYou Health Helper** action, and explains Android’s install confirmation.
 9. Confirm the manual sleep/mood controls, motion, Home Sensor, companion text/explicit voice input, and installed PWA still behave normally.
 
-If no summaries appear, first confirm Samsung Health has written records into Health Connect under **Data and access**, then recheck WithYou Health Bridge's three read permissions. The backend connection status is prototype in-memory state and resets when the Render process restarts.
+If no summaries appear, first confirm Samsung Health has written records into Health Connect under **Data and access**, then recheck WithYou Health Helper's three read permissions. The backend connection status is prototype in-memory state and resets when the Render process restarts.
 
 ## Security and deployment notes
 
