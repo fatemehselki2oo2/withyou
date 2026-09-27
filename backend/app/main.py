@@ -21,6 +21,7 @@ load_dotenv(PROJECT_ROOT.parent / ".env", override=False)
 
 from .companion import create_companion_response, process_voice_message
 from .demo_sessions import DemoSessionDeviceConflict, DemoSessionStore
+from .health_summaries import HealthSummaryStore
 from .models import (
     CompanionRequest,
     CompanionResponse,
@@ -63,7 +64,8 @@ sensor_state: dict[str, Any] = {
     "last_reading_at": None,
     "last_source": None,
     "last_sensor_type": None,
-    # This is connection metadata only. Health values are acknowledged and discarded.
+    # Connection metadata only. Compact Health Connect summaries live in the
+    # separate bounded in-memory store below; raw history is never accepted.
     "sources": {
         "arduino": {"connected": False, "last_reading_at": None, "last_sensor_type": None},
         "watch": {"connected": False, "last_reading_at": None, "last_sensor_type": None},
@@ -71,6 +73,7 @@ sensor_state: dict[str, Any] = {
 }
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 demo_session_store = DemoSessionStore(ttl_minutes=DEMO_SESSION_TTL_MINUTES)
+health_summary_store = HealthSummaryStore()
 
 
 @app.middleware("http")
@@ -138,8 +141,10 @@ async def ingest_sensor_reading(reading: SensorReading, request: Request) -> dic
 
     received_at = datetime.now(UTC)
     temporarily_cached = False
+    compact_summary_cached = False
     try:
         reading, temporarily_cached = demo_session_store.ingest(reading, received_at)
+        compact_summary_cached = health_summary_store.ingest(reading, received_at)
     except DemoSessionDeviceConflict:
         raise HTTPException(status_code=409, detail="Demo code is already paired with another device.") from None
     except ValueError as error:
@@ -162,8 +167,16 @@ async def ingest_sensor_reading(reading: SensorReading, request: Request) -> dic
         "sensor_type": reading.sensor_type,
         "stored": False,
         "temporarily_cached": temporarily_cached,
+        "compact_summary_cached": compact_summary_cached,
         "reading_id": reading.id,
     }
+
+
+@app.get("/api/sensors/health-connect/summaries")
+async def latest_health_connect_summaries(response: Response) -> dict[str, Any]:
+    """Return only the six latest compact current/baseline summaries."""
+    response.headers["Cache-Control"] = "no-store, private"
+    return {"status": "ok", **health_summary_store.latest()}
 
 
 @app.get("/api/sensors/demo-sessions/latest")

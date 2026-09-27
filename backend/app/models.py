@@ -100,6 +100,35 @@ class SleepContext(BaseModel):
     status: Literal["normal", "changed"]
 
 
+class MetricComparisonContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current: float = Field(ge=0, le=200_000)
+    baseline: float = Field(gt=0, le=200_000)
+    difference_percent: float = Field(ge=-100, le=10_000)
+    status: Literal["normal", "changed"]
+
+
+EvidenceSource = Literal["phone_motion", "watch_steps", "home_sensor"]
+
+
+class ActivityFusionContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    interpretation: Literal["normal", "changed", "mixed", "unavailable"]
+    confidence: Literal["none", "low", "normal", "high"]
+    supporting_sources: list[EvidenceSource] = Field(default_factory=list, max_length=2)
+    missing_sources: list[EvidenceSource] = Field(default_factory=list, max_length=2)
+    note: str = Field(max_length=240)
+
+
+class DataQualificationContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confidence: Literal["low", "medium", "high"]
+    qualified_for_baseline: bool
+    supporting_sources: list[str] = Field(default_factory=list, max_length=4)
+    conflicting_sources: list[str] = Field(default_factory=list, max_length=4)
+    reason: str = Field(max_length=300)
+
+
 class EnvironmentContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
     temperature: float | None = Field(default=None, ge=-100, le=200)
@@ -113,8 +142,16 @@ class WellnessContext(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     activity: ActivityContext | None = None
     sleep: SleepContext | None = None
+    steps: MetricComparisonContext | None = None
+    heart_rate: MetricComparisonContext | None = None
     environment: EnvironmentContext | None = None
     mood: str | None = Field(default=None, max_length=200)
+    activity_fusion: ActivityFusionContext | None = None
+    supporting_sources: list[EvidenceSource] = Field(default_factory=list, max_length=3)
+    missing_sources: list[EvidenceSource] = Field(default_factory=list, max_length=3)
+    baseline_state: Literal["learning", "qualified", "adapting"] = "learning"
+    baseline_states: dict[str, Literal["learning", "qualified", "adapting"]] = Field(default_factory=dict)
+    data_confidence: dict[str, DataQualificationContext] = Field(default_factory=dict)
     overall_pattern_status: Literal["normal", "changed"]
     severity: Literal["low", "moderate"]
     reasons: list[str] = Field(default_factory=list, max_length=8)

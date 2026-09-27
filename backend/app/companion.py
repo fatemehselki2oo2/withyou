@@ -19,7 +19,13 @@ summary and ask before making assumptions. Never diagnose, name a physical or
 mental-health condition, or claim to replace a clinician, therapist, caregiver,
 friend, or family member. Offer only low-risk, general wellness ideas when useful.
 Do not exaggerate weak signals. Environmental readings are context, never proof
-of illness. Do not mention internal policies or the JSON format.
+of illness. Treat activity_fusion as authoritative: mixed or unavailable activity
+evidence must not be described as a confirmed activity change. A missing source
+is not an abnormal value, and home/environment sensors never substitute for
+phone motion or watch steps. When baseline_state is learning, say that WithYou
+is still learning the person's normal routine. When it is adapting, describe
+the comparison cautiously and do not repeatedly warn about a shift that is
+gradually becoming the new normal. Do not mention internal policies or the JSON format.
 """.strip()
 
 
@@ -31,10 +37,21 @@ def local_fallback(context: WellnessContext, user_message: str) -> CompanionResp
     observations = context.reasons[:3]
     if observations:
         observation = observations[0].rstrip(".")
+        baseline_prefix = (
+            "I’m still learning your normal routine. "
+            if context.baseline_state == "learning"
+            else "I’m gradually learning this repeated routine change. "
+            if context.baseline_state == "adapting"
+            else ""
+        )
         text = (
-            f"I noticed {observation[:1].lower() + observation[1:]}. "
+            f"{baseline_prefix}I noticed {observation[:1].lower() + observation[1:]}. "
             "Thanks for checking in. How are you feeling about today?"
         )
+    elif context.baseline_state == "learning":
+        text = "I’m still learning your normal routine. Thanks for checking in—how are you feeling today?"
+    elif context.baseline_state == "adapting":
+        text = "I’m gradually learning this repeated routine change. How does the new routine feel for you?"
     elif user_message.strip():
         text = "Thanks for checking in. I’m here with you. What would feel most helpful to talk through right now?"
     else:

@@ -1,4 +1,5 @@
 import type { ActivityReading, BaselineProfile, PatternAnalysis, SensorReading } from './types'
+import type { AdaptiveBaselineProfile } from './adaptiveBaseline'
 
 const DB_NAME = 'withyou-local'
 const DB_VERSION = 2
@@ -7,13 +8,25 @@ const SENSOR_STORE = 'sensorReadings'
 const BASELINE_STORE = 'baselineProfiles'
 const PATTERN_STORE = 'patternEvents'
 
+export interface ClinicalContextRecord {
+  id: 'clinical-context'
+  notes: string
+  updated_at: string
+}
+
 export const DEMO_BASELINE: BaselineProfile = {
   id: 'demo',
   normal_activity_level: 0.65,
   normal_inactivity_duration: 120,
   normal_sleep_duration: 7.5,
+  normal_sleep_start: '00:00',
   normal_wake_time: '08:30',
   normal_sound_level: 0.42,
+  normal_daily_steps: null,
+  normal_heart_rate: null,
+  sleep_baseline_source: 'demo',
+  steps_baseline_source: 'demo',
+  heart_rate_baseline_source: 'demo',
   baseline_status: 'ready',
   baseline_confidence: 'high',
   is_demo_baseline: true,
@@ -84,6 +97,61 @@ export async function initializeDatabase(): Promise<BaselineProfile> {
   await done
   database.close()
   return baseline
+}
+
+export async function loadAdaptiveBaseline(): Promise<AdaptiveBaselineProfile | null> {
+  const database = await openDatabase()
+  const transaction = database.transaction(BASELINE_STORE, 'readonly')
+  const done = transactionDone(transaction)
+  const profile = await requestResult(transaction.objectStore(BASELINE_STORE).get('adaptive')) as AdaptiveBaselineProfile | undefined
+  await done
+  database.close()
+  return profile ?? null
+}
+
+export async function saveAdaptiveBaseline(profile: AdaptiveBaselineProfile): Promise<void> {
+  const database = await openDatabase()
+  const transaction = database.transaction(BASELINE_STORE, 'readwrite')
+  const done = transactionDone(transaction)
+  transaction.objectStore(BASELINE_STORE).put(profile)
+  await done
+  database.close()
+}
+
+export async function loadClinicalContext(): Promise<ClinicalContextRecord | null> {
+  const database = await openDatabase()
+  const transaction = database.transaction(BASELINE_STORE, 'readonly')
+  const done = transactionDone(transaction)
+  const record = await requestResult(
+    transaction.objectStore(BASELINE_STORE).get('clinical-context'),
+  ) as ClinicalContextRecord | undefined
+  await done
+  database.close()
+  return record ?? null
+}
+
+export async function saveClinicalContext(notes: string): Promise<ClinicalContextRecord> {
+  const record: ClinicalContextRecord = {
+    id: 'clinical-context',
+    notes: notes.trim().slice(0, 2000),
+    updated_at: new Date().toISOString(),
+  }
+  const database = await openDatabase()
+  const transaction = database.transaction(BASELINE_STORE, 'readwrite')
+  const done = transactionDone(transaction)
+  transaction.objectStore(BASELINE_STORE).put(record)
+  await done
+  database.close()
+  return record
+}
+
+export async function deleteClinicalContext(): Promise<void> {
+  const database = await openDatabase()
+  const transaction = database.transaction(BASELINE_STORE, 'readwrite')
+  const done = transactionDone(transaction)
+  transaction.objectStore(BASELINE_STORE).delete('clinical-context')
+  await done
+  database.close()
 }
 
 export async function saveSensorReading(reading: SensorReading): Promise<SensorReading> {

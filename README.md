@@ -39,7 +39,7 @@ Phone / Arduino / Android Health Connect / Manual Check-In
          Text and optional speech
 ```
 
-Personal history remains in IndexedDB or Health Connect whenever possible. The Android bridge reduces recent health records on the phone and uploads only one small summary per available category. The backend acknowledges external-device readings but does not permanently store their values.
+Personal history remains in IndexedDB or Health Connect whenever possible. The Android bridge reduces recent health records on the phone and uploads only compact current/baseline summaries. The backend keeps at most six of those summaries in process memory for the frontend and never retains raw Health Connect history.
 
 ## Normalized sensor model
 
@@ -89,6 +89,7 @@ The API key is loaded only by the backend. Voice audio is held in memory during 
 - `GET /api/sensors/health` — sensor ingestion status and last external source
 - `POST /api/sensors/readings` — validated acknowledgement, plus latest-only temporary caching when a Pico demo code is present
 - `GET /api/sensors/demo-sessions/latest` — latest-only Pico W summaries; requires the exact code in `X-Demo-Session-ID`
+- `GET /api/sensors/health-connect/summaries` — at most six latest compact current/baseline Health Connect summaries
 - `POST /api/companion/respond` — summarized context plus typed message
 - `POST /api/companion/voice` — bounded temporary audio upload plus summarized context
 
@@ -169,7 +170,7 @@ Invoke-RestMethod `
   -Body $reading
 ```
 
-The acknowledgement contains `stored: false`. A valid Arduino reading changes the frontend Home Sensor status to connected while a reading has been received recently (within 90 seconds).
+The acknowledgement contains `stored: false`. A valid Arduino reading changes the frontend Home Sensor status to live while a reading has been received within 30 seconds. Older values remain visible but are labeled as the last stale reading rather than live data.
 
 ## Raspberry Pi Pico W multi-phone judging demo
 
@@ -193,7 +194,7 @@ The backend retains only the newest value for each sensor type in that session. 
 4. Set `WIFI_SSID`, `WIFI_PASSWORD`, and a private `DEMO_SESSION_ID`. Never commit real Wi-Fi credentials.
 5. Save the script to the Pico as `main.py` and run it. It posts temperature, humidity, and light summaries every ten seconds.
 6. On each judge's phone, open WithYou, find **Room Environment**, enter the same code under **Connect to Live Home Sensor**, and tap **Connect**.
-7. Within a few seconds, Home Sensor should show Connected. Each browser imports a reading only once by ID/timestamp, while continuing to poll for newer summaries.
+7. The browser fetches immediately, then polls the existing session endpoint every three seconds. The panel shows the latest temperature, humidity, and light value per sensor type, while each browser imports a reading only once by ID/timestamp.
 
 The current script intentionally generates the environmental numbers while using a real Pico W, Wi-Fi, backend, and multi-phone data path. The UI labels them **Simulated environmental value**. These readings never enter Health Connect. Replace only `simulated_environment()` when real external sensors are selected.
 
@@ -208,16 +209,38 @@ Galaxy Watch → Samsung Health → Health Connect
                                   ↓
                     summarize on the Android phone
                                   ↓
-       up to 3 real, non-simulated SensorReading objects
+       up to 6 compact, non-simulated SensorReading summaries
                                   ↓
              POST /api/sensors/readings on FastAPI
                                   ↓
        PWA Sources card shows Watch / Health connected
 ```
 
-The bridge is foreground-only and syncs only after a button tap. It requests read access to Steps, Sleep, and Heart Rate—no write, background, or full-history permission. Raw heart-rate samples and raw health history are not uploaded. The backend's health endpoint exposes connection time and reading type, not health values. The prototype remains non-diagnostic.
+The bridge is foreground-only and syncs only after a button tap. It requests read access to Steps, Sleep, and Heart Rate—no write permission and no background sync. On the phone, it keeps today's steps, the latest completed full sleep, and the recent heart-rate average, then computes personal 30-day averages for steps, completed sleep, and heart rate. Sleep uses full parent-session intervals and merges overlapping or closely adjacent fragments instead of selecting a tiny final fragment. Raw daily values, sleep sessions/stages, heart-rate samples, and raw health history are not uploaded. The backend keeps only the latest current/baseline pair for each of the three metrics in a six-slot in-memory cache. The frontend fetches those compact summaries, explicitly separates current values from baselines, and falls back to demo values when a personal baseline is unavailable. The prototype remains non-diagnostic.
+
+Each uploaded summary identifies `provider: health_connect`, `summary_kind: current` or `baseline`, and `raw_history_uploaded: false`. Baseline metadata contains only aggregate details such as the contributing count, range, and standard deviation.
+
+### Source-aware activity fusion
+
+WithYou does not require the phone, watch, and home sensor to be present together. Phone motion and watch steps keep separate personal baselines but contribute to one activity interpretation. One available movement source is used with normal confidence; agreement between both raises confidence; disagreement is reported as mixed and does not create a strong or duplicate activity alert. Missing sources are listed as unavailable rather than converted into abnormal values. Home-sensor readings add environment/presence context only and never stand in for movement evidence.
+
+### Adaptive personal baselines
+
+The browser keeps a compact adaptive profile in the existing IndexedDB baseline store. Each source-specific metric has a `learning`, `qualified`, or `adapting` state plus a rolling mean, standard deviation, qualified count, candidate-pattern count, and last-update time. A single outlier is recorded only as a candidate and does not move a qualified baseline. A similar change must appear on at least five distinct days before bounded adaptation begins; repeated behavior then moves the baseline gradually instead of jumping to the newest value.
+
+Sleep duration, bedtime, and wake time adapt separately. Bedtime and wake time use circular clock arithmetic so values around midnight average correctly. Partial current-day steps are never used for learning; only the compact Health Connect completed-day baseline is eligible. Heart-rate adaptation uses compact multi-day summaries only and remains observational. Phone-motion learning is source-specific and is rejected when phone and watch activity evidence conflict.
+
+No raw Health Connect history or backend wellness history is added. The local adaptive profile stores compact statistics and at most 30 observation identifiers solely to prevent processing the same daily summary repeatedly; it does not store the underlying daily step totals, sleep stages, or heart-rate samples.
 
 Health Connect may combine records from Samsung Health, the phone, and other apps the user approved. WithYou therefore labels these readings as real **Health Connect summaries**, not as guaranteed Galaxy Watch measurements.
+
+### User-controlled clinical summary
+
+The PWA includes a lightweight **Generate summary for my doctor** flow. The report is created locally only after the user taps the button, then shown as a preview before the user chooses to copy, download, print, or save it as a PDF. WithYou never automatically sends the report and does not create a clinician account or second health database.
+
+The report generator consumes the same interpreted `WellnessContext`, activity-fusion result, and qualified/adapting baseline profile used by the main dashboard. It accepts no raw record arrays. Learning/demo fallback values are not presented as personal clinical baselines, and the report explicitly lists confidence plus supporting, conflicting, and missing sources. Optional health/context notes are user-entered, editable/deletable, stored in the existing local IndexedDB baseline store, and included only when the user checks **My context notes**.
+
+Every report is labeled **For discussion with a healthcare professional — not a diagnosis.** It contains no raw Health Connect history, sleep stages, individual heart-rate samples, or full daily histories.
 
 ### Build the bridge
 
@@ -253,4 +276,4 @@ If no summaries appear, first confirm Samsung Health has written records into He
 
 ## Future hardware and product work
 
-The ingestion contract is ready for temperature, humidity, light, PIR/motion, and proximity readings once the exact Arduino/ESP32 board and sensors are chosen. Future product work can add smartwatch support, adaptive baselines, notifications, and privacy-conscious caregiver summaries without redesigning the normalized sensor pipeline.
+The current hackathon scope already includes Health Connect summaries, adaptive personal baselines, source-aware fusion, and the user-controlled clinical/caregiver summary described above. The normalized ingestion contract remains extensible, but PIR, geofencing, additional physical sensors, background synchronization, notifications, clinician accounts, and other product expansion are intentionally not implemented in this submission.

@@ -38,6 +38,12 @@ export interface HomeSensorSessionResponse {
   readings: SensorReading[]
 }
 
+export interface HealthConnectSummaryResponse {
+  status: 'ok'
+  updated_at: string | null
+  summaries: SensorReading[]
+}
+
 export interface ActivityReading {
   id?: number
   timestamp: string
@@ -52,20 +58,50 @@ export interface BaselineProfile {
   normal_activity_level: number
   normal_inactivity_duration: number
   normal_sleep_duration: number
+  normal_sleep_start: string
   normal_wake_time: string
   normal_sound_level: number
+  normal_daily_steps: number | null
+  normal_heart_rate: number | null
+  sleep_baseline_source: 'demo' | 'health_connect' | 'adaptive'
+  steps_baseline_source: 'demo' | 'health_connect' | 'adaptive'
+  heart_rate_baseline_source: 'demo' | 'health_connect' | 'adaptive'
   baseline_status: 'ready'
   baseline_confidence: 'high'
   is_demo_baseline: true
 }
 
 export type ComparisonStatus = 'normal' | 'changed'
+export type EvidenceSource = 'phone_motion' | 'watch_steps' | 'home_sensor'
+export type ActivityInterpretation = 'normal' | 'changed' | 'mixed' | 'unavailable'
+export type EvidenceConfidence = 'none' | 'low' | 'normal' | 'high'
+export type BaselineQualificationState = 'learning' | 'qualified' | 'adapting'
+export type BaselineDataConfidence = 'low' | 'medium' | 'high'
+
+export interface BaselineDataQualification {
+  confidence: BaselineDataConfidence
+  qualified_for_baseline: boolean
+  supporting_sources: string[]
+  conflicting_sources: string[]
+  reason: string
+}
+
+export interface ActivityFusionAnalysis {
+  interpretation: ActivityInterpretation
+  confidence: EvidenceConfidence
+  supporting_sources: EvidenceSource[]
+  missing_sources: EvidenceSource[]
+  note: string
+}
 
 export interface PatternAnalysis {
   status: ComparisonStatus
   severity: 'low' | 'moderate'
   reasons: string[]
   check_in_recommended: boolean
+  activity_fusion: ActivityFusionAnalysis
+  supporting_sources: EvidenceSource[]
+  missing_sources: EvidenceSource[]
 }
 
 export interface WellnessContext {
@@ -80,6 +116,18 @@ export interface WellnessContext {
     baseline_hours: number
     status: ComparisonStatus
   } | null
+  steps: {
+    current: number
+    baseline: number
+    difference_percent: number
+    status: ComparisonStatus
+  } | null
+  heart_rate: {
+    current: number
+    baseline: number
+    difference_percent: number
+    status: ComparisonStatus
+  } | null
   environment: {
     temperature: number | null
     temperature_source: 'simulated' | 'arduino' | 'unknown' | null
@@ -88,6 +136,12 @@ export interface WellnessContext {
     sound_level: 'quiet' | 'normal' | 'loud' | 'unknown'
   }
   mood: string | null
+  activity_fusion: ActivityFusionAnalysis
+  supporting_sources: EvidenceSource[]
+  missing_sources: EvidenceSource[]
+  baseline_state: BaselineQualificationState
+  baseline_states: Record<string, BaselineQualificationState>
+  data_confidence: Record<string, BaselineDataQualification>
   overall_pattern_status: ComparisonStatus
   severity: 'low' | 'moderate'
   reasons: string[]

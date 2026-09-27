@@ -13,7 +13,8 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
 /**
- * A deliberately small bridge screen: grant access, then tap once to sync.
+ * A deliberately small bridge screen: grant access, then tap once to sync
+ * current and 30-day baseline summaries.
  * There is no background service, account system, or automatic upload.
  */
 class MainActivity : AppCompatActivity() {
@@ -110,7 +111,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val uploaded = apiClient.upload(summaries)
-                statusText.text = "Connected. $uploaded real Health Connect summaries were accepted by WithYou."
+                statusText.text = "Connected. $uploaded compact Health Connect summaries were accepted by WithYou."
                 resultsText.text = summaries.joinToString(separator = "\n") { "• ${it.displayLine()}" }
             } catch (error: Exception) {
                 statusText.text = "Sync did not finish. Your raw Health Connect data was not uploaded."
