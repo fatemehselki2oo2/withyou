@@ -68,6 +68,28 @@ export interface TodayPresentation {
   tone: 'normal' | 'changed' | 'learning' | 'empty'
 }
 
+export interface HealthPanelVisibility {
+  showSummaries: boolean
+  showAndroidManagement: boolean
+  showPrimaryInstall: boolean
+  showDesktopManagementNote: boolean
+}
+
+export function healthPanelVisibility(input: {
+  healthState: 'connected' | 'sync_needed' | 'not_connected'
+  isAndroid: boolean
+  isDesktop: boolean
+  helperMissing: boolean
+}): HealthPanelVisibility {
+  const mobileAndroid = input.isAndroid && !input.isDesktop
+  return {
+    showSummaries: input.healthState === 'connected',
+    showAndroidManagement: mobileAndroid && (input.healthState === 'connected' || !input.helperMissing),
+    showPrimaryInstall: mobileAndroid && input.healthState !== 'connected' && input.helperMissing,
+    showDesktopManagementNote: input.isDesktop && input.healthState === 'connected',
+  }
+}
+
 export function buildTodayPresentation(input: {
   hasCurrentData: boolean
   baselineState: BaselineQualificationState

@@ -49,6 +49,15 @@ import { platformInfo } from './platform'
 import { analyzePatterns, buildWellnessContext, latestReading } from './patternAnalyzer'
 import { canUseVoiceInput, requestVoiceInputStream } from './voiceInput'
 import {
+  applySelectedDemoScenario,
+  demoPresentationBaseline,
+  DEMO_SCENARIOS,
+  EMPTY_DEMO_SCENARIO_STATE,
+  readingsForRealLearning,
+  selectDemoScenario,
+  type DemoScenarioId,
+} from './demoScenarios'
+import {
   CLINICAL_SUMMARY_DISCLAIMER,
   generateClinicalSummary,
   type ClinicalSummary,
@@ -60,12 +69,12 @@ import {
   buildSourceRailItems,
   buildTodayPresentation,
   formatPersonalDelta,
+  healthPanelVisibility,
   readableSourceName,
   type SourceRailId,
 } from './uiPresentation'
 import type {
   ActivityReading,
-  ActivityState,
   BaselineProfile,
   CompanionResult,
   SensorReading,
@@ -79,12 +88,6 @@ type ExternalSourceHealth = {
   last_sensor_type?: string | null
 }
 
-const DEMO_LEVELS: Record<ActivityState, number> = {
-  still: 0.08,
-  walking: 0.58,
-  active: 0.9,
-  sleeping: 0.02,
-}
 const MOOD_SCORES: Record<string, number> = {
   good: 0.9,
   okay: 0.65,
@@ -138,24 +141,6 @@ function activitySensor(reading: ActivityReading): SensorReading {
   }
 }
 
-function environmentReading(
-  sensorType: 'temperature' | 'humidity' | 'light',
-  value: number,
-  unit: string,
-  label: string,
-): SensorReading {
-  return {
-    timestamp: new Date().toISOString(),
-    source: 'arduino',
-    sensor_type: sensorType,
-    value,
-    unit,
-    confidence: 1,
-    is_simulated: true,
-    metadata: { label, hardware_status: 'simulated_until_connected' },
-  }
-}
-
 function safeLocalCompanion(contextReasons: string[]): CompanionResult {
   const observation = contextReasons[0]
   return {
@@ -177,6 +162,7 @@ export default function App() {
   const [adaptiveProfile, setAdaptiveProfile] = useState(() => createAdaptiveProfile(DEMO_BASELINE))
   const [adaptiveLoaded, setAdaptiveLoaded] = useState(false)
   const [readings, setReadings] = useState<SensorReading[]>([])
+  const [demoScenario, setDemoScenario] = useState(EMPTY_DEMO_SCENARIO_STATE)
   const [motionStatus, setMotionStatus] = useState<PhoneStatus>('permission_needed')
   const [motionMessage, setMotionMessage] = useState('Connect Phone to use motion while WithYou is open.')
   const [sleepStart, setSleepStart] = useState(sleepDefaults.start)
@@ -393,9 +379,22 @@ export default function App() {
     () => analyzePatterns(comparisonReadings, effectiveBaseline, adaptiveProfile),
     [comparisonReadings, effectiveBaseline, adaptiveProfile],
   )
+  const activeDemo = demoScenario.applied
+  const presentationBaseline = useMemo(
+    () => activeDemo ? demoPresentationBaseline(effectiveBaseline) : effectiveBaseline,
+    [activeDemo, effectiveBaseline],
+  )
+  const presentationReadings = useMemo(
+    () => activeDemo ? [...comparisonReadings, ...activeDemo.readings] : comparisonReadings,
+    [activeDemo, comparisonReadings],
+  )
+  const presentationPattern = useMemo(
+    () => activeDemo ? analyzePatterns(activeDemo.readings, presentationBaseline) : pattern,
+    [activeDemo, pattern, presentationBaseline],
+  )
   const learning = useMemo(
-    () => buildLearningInputs(comparisonReadings, selectedHealthSummaries, pattern.activity_fusion),
-    [comparisonReadings, selectedHealthSummaries, pattern.activity_fusion],
+    () => buildLearningInputs(readingsForRealLearning(presentationReadings), selectedHealthSummaries, pattern.activity_fusion),
+    [pattern.activity_fusion, presentationReadings, selectedHealthSummaries],
   )
   useEffect(() => {
     if (!adaptiveLoaded) return
@@ -412,29 +411,36 @@ export default function App() {
     () => buildWellnessContext(comparisonReadings, effectiveBaseline, pattern, adaptiveProfile),
     [comparisonReadings, effectiveBaseline, pattern, adaptiveProfile],
   )
-  const activity = latestReading(comparisonReadings, 'activity')
-  const sleep = latestReading(comparisonReadings, 'sleep')
-  const steps = latestReading(comparisonReadings, 'steps')
-  const heartRate = latestReading(comparisonReadings, 'heart_rate')
-  const temperature = latestReading(comparisonReadings, 'temperature')
-  const humidity = latestReading(comparisonReadings, 'humidity')
-  const light = latestReading(comparisonReadings, 'light')
+  const realActivity = latestReading(comparisonReadings, 'activity')
+  const realSleep = latestReading(comparisonReadings, 'sleep')
+  const realSteps = latestReading(comparisonReadings, 'steps')
+  const realHeartRate = latestReading(comparisonReadings, 'heart_rate')
+  const activity = latestReading(presentationReadings, 'activity')
+  const sleep = latestReading(presentationReadings, 'sleep')
+  const steps = latestReading(presentationReadings, 'steps')
+  const heartRate = latestReading(presentationReadings, 'heart_rate')
+  const temperature = latestReading(presentationReadings, 'temperature')
+  const humidity = latestReading(presentationReadings, 'humidity')
+  const light = latestReading(presentationReadings, 'light')
   const homeSessionTemperature = latestReading(homeSessionReadings, 'temperature')
   const homeSessionHumidity = latestReading(homeSessionReadings, 'humidity')
   const homeSessionLight = latestReading(homeSessionReadings, 'light')
-  const environmentTemperature = homeSessionId ? homeSessionTemperature : temperature
-  const environmentHumidity = homeSessionId ? homeSessionHumidity : humidity
-  const environmentLight = homeSessionId ? homeSessionLight : light
+  const demoTemperature = activeDemo ? latestReading(activeDemo.readings, 'temperature') : undefined
+  const demoHumidity = activeDemo ? latestReading(activeDemo.readings, 'humidity') : undefined
+  const demoLight = activeDemo ? latestReading(activeDemo.readings, 'light') : undefined
+  const environmentTemperature = demoTemperature ?? (homeSessionId ? homeSessionTemperature : temperature)
+  const environmentHumidity = demoHumidity ?? (homeSessionId ? homeSessionHumidity : humidity)
+  const environmentLight = demoLight ?? (homeSessionId ? homeSessionLight : light)
   const homeSessionFreshness = homeSensorFreshness(homeSessionUpdatedAt, homeSessionClock)
   const mood = latestReading(comparisonReadings, 'mood')
   const activityDifference = activity
-    ? ((activity.value - effectiveBaseline.normal_activity_level) / effectiveBaseline.normal_activity_level) * 100
+    ? ((activity.value - presentationBaseline.normal_activity_level) / presentationBaseline.normal_activity_level) * 100
     : null
-  const stepsDifference = steps && effectiveBaseline.normal_daily_steps
-    ? ((steps.value - effectiveBaseline.normal_daily_steps) / effectiveBaseline.normal_daily_steps) * 100
+  const stepsDifference = steps && presentationBaseline.normal_daily_steps
+    ? ((steps.value - presentationBaseline.normal_daily_steps) / presentationBaseline.normal_daily_steps) * 100
     : null
-  const heartRateDifference = heartRate && effectiveBaseline.normal_heart_rate
-    ? ((heartRate.value - effectiveBaseline.normal_heart_rate) / effectiveBaseline.normal_heart_rate) * 100
+  const heartRateDifference = heartRate && presentationBaseline.normal_heart_rate
+    ? ((heartRate.value - presentationBaseline.normal_heart_rate) / presentationBaseline.normal_heart_rate) * 100
     : null
   const homeConnected = Boolean(homeSessionId) && homeSessionFreshness.state === 'live'
 
@@ -471,10 +477,6 @@ export default function App() {
     } catch {
       setStorageError('A reading updated the dashboard but could not be saved to IndexedDB.')
     }
-  }
-
-  const recordSensors = async (newReadings: SensorReading[]) => {
-    for (const reading of newReadings) await recordSensor(reading)
   }
 
   const recordActivity = async (reading: ActivityReading) => {
@@ -517,16 +519,6 @@ export default function App() {
     }
   }
 
-  const addDemoActivity = (state: ActivityState, level = DEMO_LEVELS[state]) => {
-    void recordActivity({
-      timestamp: new Date().toISOString(),
-      source: 'phone',
-      activity_level: level,
-      state,
-      is_simulated: true,
-    })
-  }
-
   const saveSleep = async () => {
     const start = new Date(sleepStart)
     const wake = new Date(wakeTime)
@@ -563,30 +555,15 @@ export default function App() {
     setCustomMood('')
   }
 
-  const runDemo = (scenario: string) => {
-    const now = new Date().toISOString()
-    const activityDemo = (value: number, state: ActivityState): SensorReading => ({
-      timestamp: now, source: 'phone', sensor_type: 'activity', value, unit: 'relative', confidence: 1,
-      is_simulated: true, metadata: { state, scenario },
-    })
-    const sleepDemo = (hours: number): SensorReading => ({
-      timestamp: now, source: 'manual', sensor_type: 'sleep', value: hours, unit: 'hours', confidence: 1,
-      is_simulated: true, metadata: { wake_time: new Date().toISOString(), scenario },
-    })
-    const moodDemo = (label: string): SensorReading => ({
-      timestamp: now, source: 'manual', sensor_type: 'mood', value: MOOD_SCORES[label] ?? 0.5, unit: 'check_in',
-      confidence: 1, is_simulated: true, metadata: { label, scenario },
-    })
-    const demoMap: Record<string, SensorReading[]> = {
-      normal: [activityDemo(0.68, 'walking'), sleepDemo(7.6), moodDemo('good'), environmentReading('temperature', 72, 'fahrenheit', 'normal room')],
-      low: [activityDemo(0.25, 'still')],
-      sleep: [sleepDemo(4.8)],
-      stress: [moodDemo('stressed')],
-      warm: [environmentReading('temperature', 83, 'fahrenheit', 'warm room')],
-      combined: [activityDemo(0.24, 'still'), sleepDemo(4.9), moodDemo('stressed'), environmentReading('temperature', 82, 'fahrenheit', 'warm room')],
-    }
-    void recordSensors(demoMap[scenario] ?? [])
+  const chooseDemoScenario = (scenario: DemoScenarioId) => {
+    setDemoScenario((current) => selectDemoScenario(current, scenario))
   }
+
+  const runSelectedDemoScenario = () => {
+    setDemoScenario((current) => applySelectedDemoScenario(current))
+  }
+
+  const clearDemoScenario = () => setDemoScenario(EMPTY_DEMO_SCENARIO_STATE)
 
   const sendTypedMessage = async () => {
     const message = companionInput.trim()
@@ -716,10 +693,10 @@ export default function App() {
       pattern,
       wellnessContext,
       timestamps: {
-        sleep: sleep?.timestamp,
-        phoneActivity: activity?.timestamp,
-        steps: steps?.timestamp,
-        heartRate: heartRate?.timestamp,
+        sleep: realSleep?.timestamp,
+        phoneActivity: realActivity?.timestamp,
+        steps: realSteps?.timestamp,
+        heartRate: realHeartRate?.timestamp,
       },
       userContext: clinicalContext,
     })
@@ -773,19 +750,33 @@ export default function App() {
   const activityState = typeof activity?.metadata.state === 'string' ? activity.metadata.state : 'waiting'
   const moodLabel = typeof mood?.metadata.label === 'string' ? mood.metadata.label : 'Not checked in'
   const overallBaselineState = adaptiveBaselineState(adaptiveProfile)
-  const todayPresentation = buildTodayPresentation({
-    hasCurrentData: comparisonReadings.length > 0,
-    baselineState: overallBaselineState,
-    patternStatus: pattern.status,
-    firstReason: pattern.reasons[0],
-    missingSourceCount: pattern.missing_sources.length,
+  const presentationBaselineState = activeDemo ? 'qualified' : overallBaselineState
+  const baseTodayPresentation = buildTodayPresentation({
+    hasCurrentData: presentationReadings.length > 0,
+    baselineState: presentationBaselineState,
+    patternStatus: presentationPattern.status,
+    firstReason: presentationPattern.reasons[0],
+    missingSourceCount: presentationPattern.missing_sources.length,
   })
+  const todayPresentation = activeDemo ? {
+    ...baseTodayPresentation,
+    title: presentationPattern.status === 'changed'
+      ? 'Simulated meaningful-change scenario'
+      : 'Simulated normal-day scenario',
+    description: baseTodayPresentation.description,
+  } : baseTodayPresentation
   const currentHealthMetrics = selectedHealthSummaries.current
   const healthCurrentCount = Object.values(currentHealthMetrics).filter(Boolean).length
   const healthLastSyncedAt = healthSummaryReadings.reduce<string | undefined>((latest, reading) => (
     !latest || new Date(reading.timestamp) > new Date(latest) ? reading.timestamp : latest
   ), watchHealth.last_reading_at ?? undefined)
   const healthState = healthCurrentCount > 0 ? 'connected' : watchHealth.connected ? 'sync_needed' : 'not_connected'
+  const healthPanel = healthPanelVisibility({
+    healthState,
+    isAndroid: platform.isAndroid,
+    isDesktop: platform.isDesktop,
+    helperMissing: healthBridgeReturn === 'not_installed',
+  })
   const phoneState = motionStatus === 'connected'
     ? 'connected'
     : motionStatus === 'unavailable' ? 'unavailable' : 'permission_needed'
@@ -809,8 +800,8 @@ export default function App() {
   }).map((item) => {
     if (!platform.isDesktop) return item
     if (item.id === 'phone') {
-      return activity
-        ? { ...item, state: 'Summary available', detail: `Latest mobile summary ${formatTime(activity.timestamp)}`, tone: 'connected' as const }
+      return realActivity
+        ? { ...item, state: 'Summary available', detail: `Latest mobile summary ${formatTime(realActivity.timestamp)}`, tone: 'connected' as const }
         : { ...item, state: 'Mobile source', detail: 'Connect activity from your phone', tone: 'muted' as const }
     }
     if (item.id === 'health' && healthState !== 'connected') {
@@ -825,9 +816,9 @@ export default function App() {
       signals: [{
         label: 'Sleep duration',
         current: sleep ? `${sleep.value.toFixed(1)} h` : 'No recent summary',
-        baseline: adaptiveProfile.metrics.sleep_duration.state === 'learning' ? 'Still learning' : `${effectiveBaseline.normal_sleep_duration.toFixed(1)} h`,
-        delta: formatPersonalDelta(sleep?.value ?? null, effectiveBaseline.normal_sleep_duration, adaptiveProfile.metrics.sleep_duration.state, 'h', 1),
-        state: adaptiveProfile.metrics.sleep_duration.state,
+        baseline: !activeDemo && adaptiveProfile.metrics.sleep_duration.state === 'learning' ? 'Still learning' : `${presentationBaseline.normal_sleep_duration.toFixed(1)} h`,
+        delta: formatPersonalDelta(sleep?.value ?? null, presentationBaseline.normal_sleep_duration, activeDemo ? 'qualified' : adaptiveProfile.metrics.sleep_duration.state, 'h', 1),
+        state: activeDemo ? 'qualified' : adaptiveProfile.metrics.sleep_duration.state,
       }],
     },
     {
@@ -837,16 +828,16 @@ export default function App() {
         {
           label: 'Phone motion',
           current: activity ? `${Math.round(activity.value * 100)}% relative` : 'No recent reading',
-          baseline: adaptiveProfile.metrics.phone_motion.state === 'learning' ? 'Still learning' : `${Math.round(effectiveBaseline.normal_activity_level * 100)}% relative`,
-          delta: formatPersonalDelta(activity ? activity.value * 100 : null, effectiveBaseline.normal_activity_level * 100, adaptiveProfile.metrics.phone_motion.state, '%', 0),
-          state: adaptiveProfile.metrics.phone_motion.state,
+          baseline: !activeDemo && adaptiveProfile.metrics.phone_motion.state === 'learning' ? 'Still learning' : `${Math.round(presentationBaseline.normal_activity_level * 100)}% relative`,
+          delta: formatPersonalDelta(activity ? activity.value * 100 : null, presentationBaseline.normal_activity_level * 100, activeDemo ? 'qualified' : adaptiveProfile.metrics.phone_motion.state, '%', 0),
+          state: activeDemo ? 'qualified' : adaptiveProfile.metrics.phone_motion.state,
         },
         {
           label: 'Health steps',
           current: steps ? Math.round(steps.value).toLocaleString() : 'No recent summary',
-          baseline: adaptiveProfile.metrics.steps.state === 'learning' || effectiveBaseline.normal_daily_steps == null ? 'Still learning' : Math.round(effectiveBaseline.normal_daily_steps).toLocaleString(),
-          delta: formatPersonalDelta(steps?.value ?? null, effectiveBaseline.normal_daily_steps, adaptiveProfile.metrics.steps.state, 'steps', 0),
-          state: adaptiveProfile.metrics.steps.state,
+          baseline: (!activeDemo && adaptiveProfile.metrics.steps.state === 'learning') || presentationBaseline.normal_daily_steps == null ? 'Still learning' : Math.round(presentationBaseline.normal_daily_steps).toLocaleString(),
+          delta: formatPersonalDelta(steps?.value ?? null, presentationBaseline.normal_daily_steps, activeDemo ? 'qualified' : adaptiveProfile.metrics.steps.state, 'steps', 0),
+          state: activeDemo ? 'qualified' : adaptiveProfile.metrics.steps.state,
         },
       ],
     },
@@ -856,15 +847,16 @@ export default function App() {
       signals: [{
         label: 'Health Connect average',
         current: heartRate ? `${Math.round(heartRate.value)} bpm` : 'No recent summary',
-        baseline: adaptiveProfile.metrics.heart_rate.state === 'learning' || effectiveBaseline.normal_heart_rate == null ? 'Still learning' : `${Math.round(effectiveBaseline.normal_heart_rate)} bpm`,
-        delta: formatPersonalDelta(heartRate?.value ?? null, effectiveBaseline.normal_heart_rate, adaptiveProfile.metrics.heart_rate.state, 'bpm', 0),
-        state: adaptiveProfile.metrics.heart_rate.state,
+        baseline: (!activeDemo && adaptiveProfile.metrics.heart_rate.state === 'learning') || presentationBaseline.normal_heart_rate == null ? 'Still learning' : `${Math.round(presentationBaseline.normal_heart_rate)} bpm`,
+        delta: formatPersonalDelta(heartRate?.value ?? null, presentationBaseline.normal_heart_rate, activeDemo ? 'qualified' : adaptiveProfile.metrics.heart_rate.state, 'bpm', 0),
+        state: activeDemo ? 'qualified' : adaptiveProfile.metrics.heart_rate.state,
       }],
     },
   ]
   const conflictingSources = [...new Set(Object.values(adaptiveProfile.last_qualifications)
     .flatMap((qualification) => qualification.conflicting_sources)
     .map(readableSourceName))]
+  const presentationConflictingSources = activeDemo ? [] : conflictingSources
   const sourcePanelTitles: Record<SourceRailId, { title: string; description: string }> = {
     phone: platform.isDesktop
       ? { title: 'Phone activity summaries', description: 'View mobile activity evidence without using this computer as a motion sensor.' }
@@ -897,25 +889,27 @@ export default function App() {
 
         <section className={`today-hero ${todayPresentation.tone}`} id="today" aria-labelledby="today-heading">
           <div className="today-copy">
-            <p className="eyebrow">Today</p>
+            <p className="eyebrow">{activeDemo ? 'Demo Simulation · simulated values only' : 'Today'}</p>
             <h2 id="today-heading">{todayPresentation.title}</h2>
             <p>{todayPresentation.description}</p>
+            {activeDemo && <p className="demo-alert-disclosure"><strong>Simulated Scenario:</strong> {activeDemo.label}. This is a temporary presentation preview—not a real alert, observation, or baseline event.</p>}
             <div className="today-actions">
-              {pattern.status === 'changed'
+              {presentationPattern.status === 'changed'
                 ? <a className="button-link primary" href="#check-in">Check in</a>
-                : <button type="button" onClick={() => setActiveSourcePanel('phone')}>{comparisonReadings.length ? 'Manage sources' : 'Choose a source'}</button>}
+                : <button type="button" onClick={() => setActiveSourcePanel('phone')}>{presentationReadings.length ? 'Manage sources' : 'Choose a source'}</button>}
+              {activeDemo && <button type="button" onClick={clearDemoScenario}>Exit Demo</button>}
             </div>
           </div>
           <div className="today-state">
-            <span className={`state-badge ${overallBaselineState}`}>{overallBaselineState}</span>
-            <strong>{pattern.activity_fusion.confidence === 'none' ? 'Available data only' : `${pattern.activity_fusion.confidence} confidence`}</strong>
-            <small>{pattern.supporting_sources.length ? `${pattern.supporting_sources.length} supporting source${pattern.supporting_sources.length === 1 ? '' : 's'}` : 'No movement source yet'}</small>
+            <span className={`state-badge ${activeDemo ? 'demo' : overallBaselineState}`}>{activeDemo ? 'Demo only' : overallBaselineState}</span>
+            <strong>{presentationPattern.activity_fusion.confidence === 'none' ? 'Available data only' : `${presentationPattern.activity_fusion.confidence} confidence`}</strong>
+            <small>{presentationPattern.supporting_sources.length ? `${presentationPattern.supporting_sources.length} supporting source${presentationPattern.supporting_sources.length === 1 ? '' : 's'}` : 'No movement source yet'}</small>
           </div>
         </section>
 
-        <section className={`support-section ${pattern.status === 'changed' ? 'prominent' : 'quiet'}`} id="check-in" aria-labelledby="check-in-heading">
+        <section className={`support-section ${presentationPattern.status === 'changed' ? 'prominent' : 'quiet'}`} id="check-in" aria-labelledby="check-in-heading">
           <div className="section-intro compact-intro">
-            <div><p className="eyebrow">A moment for you</p><h2 id="check-in-heading">{pattern.status === 'changed' ? 'A few parts of your routine shifted. How are you feeling today?' : 'How are you feeling today?'}</h2></div>
+            <div><p className="eyebrow">{activeDemo ? 'Demo-only supportive response' : 'A moment for you'}</p><h2 id="check-in-heading">{presentationPattern.status === 'changed' ? 'A few parts of your routine shifted. How are you feeling today?' : 'How are you feeling today?'}</h2></div>
             {mood && <span className="state-badge qualified">Checked in · {moodLabel}</span>}
           </div>
           <div className="mood-buttons">
@@ -948,19 +942,20 @@ export default function App() {
         <section className="evidence-section" aria-labelledby="evidence-heading">
           <div className="section-intro compact-intro">
             <div><p className="eyebrow">Plain-language evidence</p><h2 id="evidence-heading">Why WithYou noticed this</h2></div>
-            <span className={`state-badge ${pattern.activity_fusion.interpretation === 'mixed' ? 'adapting' : pattern.status === 'changed' ? 'learning' : 'qualified'}`}>
-              {pattern.activity_fusion.confidence === 'none' ? 'Limited evidence' : `${pattern.activity_fusion.confidence} confidence`}
+            <span className={`state-badge ${activeDemo ? 'demo' : presentationPattern.activity_fusion.interpretation === 'mixed' ? 'adapting' : presentationPattern.status === 'changed' ? 'learning' : 'qualified'}`}>
+              {activeDemo ? 'Simulated scenario' : presentationPattern.activity_fusion.confidence === 'none' ? 'Limited evidence' : `${presentationPattern.activity_fusion.confidence} confidence`}
             </span>
           </div>
-          <p className="evidence-lead">{pattern.activity_fusion.note}</p>
+          <p className="evidence-lead">{presentationPattern.activity_fusion.note}</p>
+          {activeDemo && <p className="simulation-disclosure"><strong>Demo Simulation:</strong> The evidence below exists only in memory for this presentation and is not saved as user data.</p>}
           <p className="evidence-context">Home Sensor readings add room context only and never substitute for phone or Health movement data.</p>
           <details className="inline-disclosure evidence-details">
             <summary>See source details</summary>
             <dl className="evidence-list">
-              <div><dt>Supporting</dt><dd>{pattern.supporting_sources.length ? pattern.supporting_sources.map(readableSourceName).join(', ') : 'None available yet'}</dd></div>
-              <div><dt>Conflicting</dt><dd>{conflictingSources.length ? conflictingSources.join(', ') : pattern.activity_fusion.interpretation === 'mixed' ? 'Phone motion, Health steps' : 'None identified'}</dd></div>
-              <div><dt>Missing</dt><dd>{pattern.missing_sources.length ? pattern.missing_sources.map(readableSourceName).join(', ') : 'None'}</dd></div>
-              <div><dt>Baseline</dt><dd>{overallBaselineState === 'learning' ? 'Still learning your routine' : overallBaselineState === 'adapting' ? 'Learning a repeated routine change gradually' : 'Qualified rolling baselines available'}</dd></div>
+              <div><dt>Supporting</dt><dd>{presentationPattern.supporting_sources.length ? presentationPattern.supporting_sources.map(readableSourceName).join(', ') : 'None available yet'}</dd></div>
+              <div><dt>Conflicting</dt><dd>{presentationConflictingSources.length ? presentationConflictingSources.join(', ') : presentationPattern.activity_fusion.interpretation === 'mixed' ? 'Phone motion, Health steps' : 'None identified'}</dd></div>
+              <div><dt>Missing</dt><dd>{presentationPattern.missing_sources.length ? presentationPattern.missing_sources.map(readableSourceName).join(', ') : 'None'}</dd></div>
+              <div><dt>Baseline</dt><dd>{activeDemo ? 'Demo reference values only' : overallBaselineState === 'learning' ? 'Still learning your routine' : overallBaselineState === 'adapting' ? 'Learning a repeated routine change gradually' : 'Qualified rolling baselines available'}</dd></div>
             </dl>
             <p className="microcopy">Missing sources are ignored, not treated as unusual values.</p>
           </details>
@@ -973,10 +968,11 @@ export default function App() {
               <span className={`status-label ${homeSessionId && homeSessionFreshness.state === 'live' ? 'live' : homeSessionUpdatedAt ? 'offline' : 'muted'}`}>{homeSessionId && homeSessionUpdatedAt ? homeSessionFreshness.label : homeSessionId ? 'Waiting for a Pico reading' : 'Not paired'}</span>
             </div>
             <div className="environment-summary">
-              <span className={homeSessionId && homeSessionFreshness.state === 'offline' ? 'stale-reading' : ''}>Temperature <strong>{environmentTemperature ? `${environmentTemperature.value} °F` : '—'}</strong><small>{homeSessionId ? homeSensorValueLabel(homeSessionFreshness, Boolean(environmentTemperature)) : environmentTemperature ? environmentTemperature.is_simulated ? 'Saved simulated value' : 'Saved local value' : 'No reading'}</small></span>
-              <span className={homeSessionId && homeSessionFreshness.state === 'offline' ? 'stale-reading' : ''}>Humidity <strong>{environmentHumidity ? `${environmentHumidity.value}%` : '—'}</strong><small>{homeSessionId ? homeSensorValueLabel(homeSessionFreshness, Boolean(environmentHumidity)) : environmentHumidity ? environmentHumidity.is_simulated ? 'Saved simulated value' : 'Saved local value' : 'No reading'}</small></span>
-              <span className={homeSessionId && homeSessionFreshness.state === 'offline' ? 'stale-reading' : ''}>Light <strong>{environmentLight ? `${environmentLight.value} lux` : '—'}</strong><small>{homeSessionId ? homeSensorValueLabel(homeSessionFreshness, Boolean(environmentLight)) : environmentLight ? environmentLight.is_simulated ? 'Saved simulated value' : 'Saved local value' : 'No reading'}</small></span>
+              <span className={!activeDemo && homeSessionId && homeSessionFreshness.state === 'offline' ? 'stale-reading' : ''}>Temperature <strong>{environmentTemperature ? `${environmentTemperature.value} °F` : '—'}</strong><small>{activeDemo && demoTemperature ? 'Demo-only simulated value' : homeSessionId ? homeSensorValueLabel(homeSessionFreshness, Boolean(environmentTemperature)) : environmentTemperature ? environmentTemperature.is_simulated ? 'Saved simulated value' : 'Saved local value' : 'No reading'}</small></span>
+              <span className={!activeDemo && homeSessionId && homeSessionFreshness.state === 'offline' ? 'stale-reading' : ''}>Humidity <strong>{environmentHumidity ? `${environmentHumidity.value}%` : '—'}</strong><small>{activeDemo && demoHumidity ? 'Demo-only simulated value' : homeSessionId ? homeSensorValueLabel(homeSessionFreshness, Boolean(environmentHumidity)) : environmentHumidity ? environmentHumidity.is_simulated ? 'Saved simulated value' : 'Saved local value' : 'No reading'}</small></span>
+              <span className={!activeDemo && homeSessionId && homeSessionFreshness.state === 'offline' ? 'stale-reading' : ''}>Light <strong>{environmentLight ? `${environmentLight.value} lux` : '—'}</strong><small>{activeDemo && demoLight ? 'Demo-only simulated value' : homeSessionId ? homeSensorValueLabel(homeSessionFreshness, Boolean(environmentLight)) : environmentLight ? environmentLight.is_simulated ? 'Saved simulated value' : 'Saved local value' : 'No reading'}</small></span>
             </div>
+            {activeDemo && <p className="simulation-disclosure"><strong>Demo Simulation:</strong> Room values shown by the active scenario are temporary and do not replace Pico readings.</p>}
             {homeSessionId && homeSessionSimulated && <p className="simulation-disclosure"><strong>Demo disclosure:</strong> Environmental values are simulated; the Pico W, Wi-Fi, HTTPS request, and backend connection are live.</p>}
             <button type="button" onClick={() => setActiveSourcePanel('home')}>{homeSessionId ? 'Manage Home Sensor' : 'Connect Home Sensor'}</button>
           </section>
@@ -994,19 +990,22 @@ export default function App() {
           <div className="section-intro"><div><p className="eyebrow">Optional tools</p><h2 id="secondary-heading">Demo, learning, and privacy</h2></div><p>Available when you need them, out of the main daily flow.</p></div>
           <details className="utility-disclosure">
             <summary>Demo controls <span>Simulated values only</span></summary>
-            <div className="utility-content">
-              <h3>Complete-day scenarios</h3>
-              <div className="demo-buttons">
-                <button onClick={() => runDemo('normal')}>Normal Day</button><button onClick={() => runDemo('low')}>Low Activity</button>
-                <button onClick={() => runDemo('sleep')}>Poor Sleep</button><button onClick={() => runDemo('stress')}>Stress Check-In</button>
-                <button onClick={() => runDemo('warm')}>Warm Room</button>
-                <button className="accent-button" onClick={() => runDemo('combined')}>Combined Different Day</button>
+            <div className="utility-content demo-panel">
+              <div><h3>Choose a scenario</h3><p className="microcopy">Selecting does not run anything. Apply it when you are ready to demonstrate.</p></div>
+              <div className="demo-scenario-grid" role="radiogroup" aria-label="Demo scenario">
+                {DEMO_SCENARIOS.map((scenario) => <button
+                  key={scenario.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={demoScenario.selected === scenario.id}
+                  className={demoScenario.selected === scenario.id ? 'selected' : ''}
+                  onClick={() => chooseDemoScenario(scenario.id)}
+                ><strong>{scenario.label}</strong><span>{scenario.description}</span></button>)}
               </div>
-              <h3>Individual phone and room values</h3>
-              <div className="demo-buttons">
-                <button onClick={() => addDemoActivity('still')}>Sitting Still</button><button onClick={() => addDemoActivity('walking')}>Walking</button><button onClick={() => addDemoActivity('active')}>Active</button><button onClick={() => addDemoActivity('sleeping')}>Sleeping</button>
-                <button onClick={() => void recordSensors([environmentReading('temperature', 72, 'fahrenheit', 'normal room'), environmentReading('humidity', 45, 'percent', 'normal room'), environmentReading('light', 400, 'lux', 'normal room')])}>Normal Room</button>
-                <button onClick={() => void recordSensor(environmentReading('temperature', 83, 'fahrenheit', 'warm room'))}>Warm Room</button><button onClick={() => void recordSensor(environmentReading('temperature', 63, 'fahrenheit', 'cool room'))}>Cool Room</button><button onClick={() => void recordSensor(environmentReading('light', 35, 'lux', 'low light'))}>Low Light</button><button onClick={() => void recordSensor(environmentReading('humidity', 78, 'percent', 'high humidity'))}>High Humidity</button>
+              <div className="demo-run-row">
+                <button className="accent-button" type="button" disabled={!demoScenario.selected} onClick={runSelectedDemoScenario}>Run Demo Scenario</button>
+                {activeDemo && <button type="button" onClick={clearDemoScenario}>Exit Demo</button>}
+                <span>{activeDemo ? `Demo Simulation active: ${activeDemo.label}. Nothing was saved.` : 'No simulated scenario is active.'}</span>
               </div>
             </div>
           </details>
@@ -1042,8 +1041,8 @@ export default function App() {
         {activeSourcePanel === 'phone' && <div className="panel-stack">
           <section>
             {platform.isDesktop ? <>
-              <div className="panel-section-heading"><div><p className="eyebrow">Viewing portal</p><h3>Phone activity</h3></div><span className={`status-label ${activity ? 'live' : 'muted'}`}>{activity ? 'Summary available' : 'Connect on mobile'}</span></div>
-              <div className={`source-status-alert ${activity ? 'success' : 'muted'}`}><strong>{activity ? 'Latest phone activity summary' : 'Use WithYou on your phone'}</strong><span>{activity ? `Last mobile motion summary ${formatTime(activity.timestamp)}. This computer is only displaying the available result.` : 'Open WithYou on your phone and choose Connect Phone there. This desktop does not request motion permission.'}</span></div>
+              <div className="panel-section-heading"><div><p className="eyebrow">Viewing portal</p><h3>Phone activity</h3></div><span className={`status-label ${realActivity ? 'live' : 'muted'}`}>{realActivity ? 'Summary available' : 'Connect on mobile'}</span></div>
+              <div className={`source-status-alert ${realActivity ? 'success' : 'muted'}`}><strong>{realActivity ? 'Latest phone activity summary' : 'Use WithYou on your phone'}</strong><span>{realActivity ? `Last mobile motion summary ${formatTime(realActivity.timestamp)}. This computer is only displaying the available result.` : 'Open WithYou on your phone and choose Connect Phone there. This desktop does not request motion permission.'}</span></div>
               <p className="microcopy">Phone motion stays local to the browser where it was collected. Desktop WithYou never treats laptop movement as phone activity.</p>
             </> : <>
               <div className="panel-section-heading"><div><p className="eyebrow">Phone activity</p><h3>Motion summaries</h3></div><span className={`status-label ${motionStatus === 'connected' ? 'live' : motionStatus === 'unavailable' ? 'offline' : 'muted'}`}>{motionStatus === 'connected' ? 'Connected · updating automatically' : motionStatus === 'unavailable' ? 'Unavailable' : 'Permission needed'}</span></div>
@@ -1057,7 +1056,7 @@ export default function App() {
           <section>
             <div className="panel-section-heading"><div><p className="eyebrow">Android health</p><h3>{healthState === 'connected' ? 'Latest compact summaries' : 'Set up Health Connect'}</h3></div><span className={`status-label ${healthState === 'connected' ? 'live' : healthState === 'sync_needed' ? 'offline' : 'muted'}`}>{healthState === 'connected' ? 'Connected · synced' : healthState === 'sync_needed' ? 'Sync needed' : 'Not connected'}</span></div>
             <div className={`source-status-alert ${healthState === 'connected' ? 'success' : healthState === 'sync_needed' ? 'attention' : 'muted'}`}><strong>{healthState === 'connected' ? `Last synced ${formatTime(healthLastSyncedAt)}` : healthState === 'sync_needed' ? 'Health needs a fresh sync' : 'Connect from a supported Android phone'}</strong><span>{healthState === 'connected' ? 'Only compact current and 30-day baseline summaries are available here.' : 'WithYou Health Helper securely brings in compact steps, sleep, and heart-rate summaries when you choose to sync.'}</span></div>
-            {healthState === 'connected' && <dl className="health-summary-grid">
+            {healthPanel.showSummaries && <dl className="health-summary-grid">
               <div><dt>Steps</dt><dd>{currentHealthMetrics.steps ? Math.round(currentHealthMetrics.steps.value).toLocaleString() : 'Not available'}</dd></div>
               <div><dt>Sleep</dt><dd>{currentHealthMetrics.sleep ? `${currentHealthMetrics.sleep.value.toFixed(1)} h` : 'Not available'}</dd></div>
               <div><dt>Heart rate</dt><dd>{currentHealthMetrics.heart_rate ? `${Math.round(currentHealthMetrics.heart_rate.value)} bpm` : 'Not available'}</dd></div>
@@ -1067,7 +1066,7 @@ export default function App() {
               setHealthBridgeMessage('Opening WithYou Health Helper…')
             }}>{healthGuideStarted ? 'Open WithYou Health Helper' : 'Connect Health'}</a>}
             {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthBridgeMessage && healthBridgeReturn !== 'not_installed' && <div className="health-bridge-message" role="status"><strong>{healthBridgeMessage}</strong><span>Follow the permission and sync steps in the helper. WithYou checks again as soon as you return.</span></div>}
-            {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthBridgeReturn === 'not_installed' && <div className="health-install-card" role="status">
+            {healthPanel.showPrimaryInstall && <div className="health-install-card" role="status">
               <div><p className="eyebrow">One small Android helper</p><h4>{healthBridgeMessage}</h4><p>It connects your phone’s Health Connect data with WithYou so your steps, sleep, and heart-rate summaries can appear here.</p></div>
               <a
                 className="button-link primary"
@@ -1095,6 +1094,25 @@ export default function App() {
             {!platform.isDesktop && !platform.isAndroid && healthState !== 'connected' && <div className="health-setup-guide"><h4>Health Connect requires Android</h4><p>WithYou does not currently connect to Apple Health. You can still use phone motion, check-ins, Home Sensor summaries, and the companion on this device.</p></div>}
             {platform.isDesktop && healthState !== 'connected' && <div className="health-setup-guide"><h4>Connect Health from your Android phone</h4><p>Open WithYou on Android, choose Connect Health, and complete the permission and sync steps there. This desktop view checks automatically for compact synced summaries.</p></div>}
             <button type="button" onClick={() => setHealthRefreshKey((value) => value + 1)}>{healthState === 'connected' ? 'Refresh summaries' : 'Check sync again'}</button>
+            {healthPanel.showAndroidManagement && <section className="health-management-card" aria-labelledby="health-management-title">
+              <div><p className="eyebrow">Connection controls</p><h4 id="health-management-title">Manage Health connection</h4><p>Open the helper whenever you want to sync now, review permissions, or reach Android’s Health Connect settings.</p></div>
+              <div className="health-management-actions">
+                <a className="button-link primary" href={healthBridgeLink}>Open WithYou Health Helper</a>
+                <a className="button-link" href={healthBridgeLink}>Sync now</a>
+                <a className="button-link" href={healthBridgeLink}>Review Health permissions</a>
+                <a className="button-link" href={healthBridgeLink}>Health Connect settings</a>
+              </div>
+              <p className="microcopy">The helper syncs automatically when it opens. Its Review health permissions action opens the supported Android permission or Health Connect settings screen.</p>
+              <details className="health-recovery-details">
+                <summary>Installation or update help</summary>
+                <div className="health-install-fallbacks">
+                  <a href={HEALTH_HELPER_APK_URL} download="withyou-health-helper.apk">Download or reinstall the helper</a>
+                  <a href={HEALTH_HELPER_RELEASE_URL} target="_blank" rel="noreferrer">Open GitHub release page</a>
+                  <a href={HEALTH_HELPER_INSTALL_HELP_URL} target="_blank" rel="noreferrer">Installation help</a>
+                </div>
+              </details>
+            </section>}
+            {healthPanel.showDesktopManagementNote && <div className="health-setup-guide health-desktop-management"><h4>Manage Health from your Android phone</h4><p>Open WithYou Health Helper on the phone that provides these summaries to sync now, review permissions, or open Health Connect settings.</p></div>}
           </section>
         </div>}
         {activeSourcePanel === 'home' && <div className="panel-stack"><section>

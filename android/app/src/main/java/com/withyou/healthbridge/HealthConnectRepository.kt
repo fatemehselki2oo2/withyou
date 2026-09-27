@@ -2,8 +2,10 @@ package com.withyou.healthbridge
 
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.permission.HealthPermission.Companion.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
@@ -22,7 +24,7 @@ import kotlin.math.sqrt
  * All Health Connect access lives here so the Activity stays easy to read.
  *
  * Important privacy boundary: raw records are held in memory only while this
- * foreground sync computes summaries. They are never returned to the UI,
+ * sync computes summaries. They are never returned to the UI,
  * written to disk, or sent to the WithYou backend.
  */
 class HealthConnectRepository(private val context: Context) {
@@ -100,6 +102,25 @@ class HealthConnectRepository(private val context: Context) {
     suspend fun hasAllPermissions(): Boolean {
         if (sdkStatus != HealthConnectClient.SDK_AVAILABLE) return false
         return client.permissionController.getGrantedPermissions().containsAll(REQUIRED_PERMISSIONS)
+    }
+
+    fun isBackgroundReadAvailable(): Boolean {
+        if (sdkStatus != HealthConnectClient.SDK_AVAILABLE) return false
+        return client.features.getFeatureStatus(
+            HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_IN_BACKGROUND,
+        ) == HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
+    }
+
+    fun permissionsForInitialRequest(): Set<String> = if (isBackgroundReadAvailable()) {
+        REQUIRED_PERMISSIONS + PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
+    } else {
+        REQUIRED_PERMISSIONS
+    }
+
+    suspend fun hasBackgroundReadPermission(): Boolean {
+        if (!isBackgroundReadAvailable()) return false
+        return PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND in
+            client.permissionController.getGrantedPermissions()
     }
 
     suspend fun readRecentSummaries(): List<SensorReadingPayload> {

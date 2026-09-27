@@ -9,22 +9,28 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.permission.HealthPermission.Companion.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
- * A deliberately small helper screen: grant access, then tap once to sync
- * current and 30-day baseline summaries.
- * There is no background service, account system, or automatic upload.
+ * A deliberately small helper screen. It refreshes compact summaries while
+ * visible, and WorkManager continues best-effort periodic sync in background.
  */
 class MainActivity : AppCompatActivity() {
     private lateinit var healthRepository: HealthConnectRepository
-    private val apiClient = WithYouApiClient()
+    private lateinit var syncCoordinator: HealthSyncCoordinator
 
     private lateinit var statusText: TextView
     private lateinit var statusLabelText: TextView
     private lateinit var statusDetailText: TextView
     private lateinit var resultsText: TextView
+    private lateinit var lastSyncText: TextView
     private lateinit var requestAccessButton: Button
     private lateinit var syncButton: Button
     private lateinit var installButton: Button
@@ -34,19 +40,23 @@ class MainActivity : AppCompatActivity() {
     private var autoSyncAfterPermission = false
     private var returnToWebAfterSync = false
     private var syncInProgress = false
+    private var backgroundSyncEnabled = false
+    private var foregroundSyncJob: Job? = null
 
     private val permissionLauncher = registerForActivityResult(
         HealthConnectRepository.permissionContract(),
     ) { granted ->
         val allGranted = granted.containsAll(HealthConnectRepository.REQUIRED_PERMISSIONS)
+        backgroundSyncEnabled = PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND in granted
         if (allGranted) {
-            showPermissionsReady()
+            configureBackgroundSync(backgroundSyncEnabled)
+            showPermissionsReady(backgroundSyncEnabled)
         } else {
             showPermissionNeeded("Allow steps, sleep, and heart rate so WithYou can create the summaries you selected.")
         }
-        if (allGranted && autoSyncAfterPermission) {
+        if (allGranted) {
             autoSyncAfterPermission = false
-            syncSummaries()
+            syncSummaries(isAutomatic = true)
         } else if (!allGranted) {
             autoSyncAfterPermission = false
         }
@@ -57,10 +67,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         healthRepository = HealthConnectRepository(applicationContext)
+        syncCoordinator = HealthSyncCoordinator(applicationContext, healthRepository)
         statusLabelText = findViewById(R.id.statusLabelText)
         statusText = findViewById(R.id.statusText)
         statusDetailText = findViewById(R.id.statusDetailText)
         resultsText = findViewById(R.id.resultsText)
+        lastSyncText = findViewById(R.id.lastSyncText)
         requestAccessButton = findViewById(R.id.requestAccessButton)
         syncButton = findViewById(R.id.syncButton)
         installButton = findViewById(R.id.installButton)
@@ -69,9 +81,9 @@ class MainActivity : AppCompatActivity() {
         acceptWebConnectIntent(intent)
 
         requestAccessButton.setOnClickListener {
-            permissionLauncher.launch(HealthConnectRepository.REQUIRED_PERMISSIONS)
+            permissionLauncher.launch(healthRepository.permissionsForInitialRequest())
         }
-        syncButton.setOnClickListener { syncSummaries() }
+        syncButton.setOnClickListener { syncSummaries(isAutomatic = false) }
         installButton.setOnClickListener { openHealthConnectStorePage() }
         settingsButton.setOnClickListener { openHealthPermissions() }
         returnButton.setOnClickListener { openWithYouWeb() }
@@ -87,6 +99,13 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshAvailabilityAndPermissions()
+        startForegroundRefreshLoop()
+    }
+
+    override fun onPause() {
+        foregroundSyncJob?.cancel()
+        foregroundSyncJob = null
+        super.onPause()
     }
 
     private fun refreshAvailabilityAndPermissions() {
@@ -97,21 +116,25 @@ class MainActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     val granted = healthRepository.hasAllPermissions()
                     if (granted) {
-                        showPermissionsReady()
+                        backgroundSyncEnabled = healthRepository.hasBackgroundReadPermission()
+                        configureBackgroundSync(backgroundSyncEnabled)
+                        showPermissionsReady(backgroundSyncEnabled)
                     } else {
                         showPermissionNeeded("Allow steps, sleep, and heart rate. You can change this later in Android settings.")
                     }
                     if (pendingWebConnect) {
                         pendingWebConnect = false
                         if (granted) {
-                            syncSummaries()
+                            syncSummaries(isAutomatic = true)
                         } else {
                             autoSyncAfterPermission = true
                             statusLabelText.text = "HEALTH PERMISSIONS"
                             statusText.text = "Your permission is needed"
                             statusDetailText.text = "Android will ask which health information WithYou may read."
-                            permissionLauncher.launch(HealthConnectRepository.REQUIRED_PERMISSIONS)
+                            permissionLauncher.launch(healthRepository.permissionsForInitialRequest())
                         }
+                    } else if (granted) {
+                        syncSummaries(isAutomatic = true)
                     }
                 }
             }
@@ -133,16 +156,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun syncSummaries() {
+    private fun startForegroundRefreshLoop() {
+        foregroundSyncJob?.cancel()
+        foregroundSyncJob = lifecycleScope.launch {
+            delay(FOREGROUND_SYNC_INTERVAL_MILLIS)
+            while (isActive) {
+                syncSummaries(isAutomatic = true)
+                delay(FOREGROUND_SYNC_INTERVAL_MILLIS)
+            }
+        }
+    }
+
+    private fun syncSummaries(isAutomatic: Boolean) {
         if (syncInProgress) return
         syncInProgress = true
         requestAccessButton.isEnabled = false
         syncButton.isEnabled = false
-        showOnlyPrimaryAction(null)
         settingsButton.isEnabled = false
-        statusLabelText.text = "SYNCING…"
-        statusText.text = "Preparing your health summaries"
-        statusDetailText.text = "Keep this helper open for a moment."
+        if (!isAutomatic) showOnlyPrimaryAction(null)
+        statusLabelText.text = if (isAutomatic) "REFRESHING…" else "SYNCING…"
+        statusText.text = "Checking Health Connect"
+        statusDetailText.text = "Refreshing compact steps, sleep, and heart-rate summaries."
 
         lifecycleScope.launch {
             try {
@@ -151,22 +185,32 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                val summaries = healthRepository.readRecentSummaries()
-                if (summaries.isEmpty()) {
-                    statusLabelText.text = "NO RECENT DATA"
-                    statusText.text = "No health summaries were found"
-                    statusDetailText.text = "Check that Samsung Health or another health app is sharing recent data with Health Connect."
-                    resultsText.text = "Nothing was shared with WithYou."
-                    showOnlyPrimaryAction(syncButton)
-                    return@launch
+                val result = syncCoordinator.sync()
+                when (result) {
+                    is HealthSyncResult.Uploaded -> {
+                        statusLabelText.text = "SYNCED SUCCESSFULLY"
+                        statusText.text = "Your latest health summaries are ready"
+                        statusDetailText.text = "${result.uploadedCount} changed compact summaries were shared. Detailed history stayed in Health Connect."
+                    }
+                    is HealthSyncResult.Unchanged -> {
+                        statusLabelText.text = "UP TO DATE"
+                        statusText.text = "No new health changes"
+                        statusDetailText.text = "The visible summaries were refreshed. Nothing was uploaded again because the compact values are unchanged."
+                    }
+                    is HealthSyncResult.NoData -> {
+                        statusLabelText.text = "NO RECENT DATA"
+                        statusText.text = "No health summaries were found"
+                        statusDetailText.text = "Check that Samsung Health or another health app is sharing recent data with Health Connect."
+                    }
                 }
-
-                val uploaded = apiClient.upload(summaries)
-                statusLabelText.text = "SYNCED SUCCESSFULLY"
-                statusText.text = "Your health summaries are ready in WithYou"
-                statusDetailText.text = "$uploaded compact summaries were shared. Your detailed health history stayed in Health Connect."
-                resultsText.text = summaries.joinToString(separator = "\n") { "• ${it.displayLine()}" }
-                showOnlyPrimaryAction(returnButton)
+                resultsText.text = if (result.summaries.isEmpty()) {
+                    "Nothing was shared with WithYou."
+                } else {
+                    result.summaries.joinToString(separator = "\n") { "• ${it.displayLine()}" }
+                }
+                val timeLabel = if (result is HealthSyncResult.Uploaded) "Last synced" else "Last checked"
+                lastSyncText.text = "$timeLabel ${formatCheckedAt(result.checkedAt)} · automatically refreshes every minute while open"
+                showReadyActions()
                 if (returnToWebAfterSync) {
                     returnToWebAfterSync = false
                     openWithYouWeb()
@@ -176,7 +220,7 @@ class MainActivity : AppCompatActivity() {
                 statusText.text = "We couldn’t finish syncing"
                 statusDetailText.text = "Check your internet connection and health permissions, then try again."
                 resultsText.text = "Your detailed health history was not shared."
-                showOnlyPrimaryAction(syncButton)
+                showReadyActions()
             } finally {
                 syncInProgress = false
                 requestAccessButton.isEnabled = true
@@ -196,20 +240,51 @@ class MainActivity : AppCompatActivity() {
         settingsButton.visibility = View.VISIBLE
     }
 
-    private fun showPermissionsReady() {
+    private fun showPermissionsReady(backgroundEnabled: Boolean) {
         statusLabelText.text = "PERMISSIONS READY"
         statusText.text = "Health permissions are ready"
-        statusDetailText.text = "Sync when you are ready. WithYou only receives compact summaries."
+        statusDetailText.text = if (backgroundEnabled) {
+            "WithYou refreshes every minute while open. Android also schedules battery-safe background updates about every 15 minutes."
+        } else {
+            "WithYou refreshes every minute while open. Allow background updates for best-effort refreshes when the helper is closed."
+        }
         showOnlyPrimaryAction(syncButton)
+        if (!backgroundEnabled && healthRepository.isBackgroundReadAvailable()) {
+            requestAccessButton.setText(R.string.allow_background_updates)
+            requestAccessButton.visibility = View.VISIBLE
+        }
+        settingsButton.visibility = View.VISIBLE
+    }
+
+    private fun showReadyActions() {
+        showOnlyPrimaryAction(returnButton)
+        syncButton.visibility = View.VISIBLE
+        if (!backgroundSyncEnabled && healthRepository.isBackgroundReadAvailable()) {
+            requestAccessButton.setText(R.string.allow_background_updates)
+            requestAccessButton.visibility = View.VISIBLE
+        }
         settingsButton.visibility = View.VISIBLE
     }
 
     private fun showOnlyPrimaryAction(button: Button?) {
+        requestAccessButton.setText(R.string.request_access)
         requestAccessButton.visibility = if (button === requestAccessButton) View.VISIBLE else View.GONE
         syncButton.visibility = if (button === syncButton) View.VISIBLE else View.GONE
         installButton.visibility = if (button === installButton) View.VISIBLE else View.GONE
         returnButton.visibility = if (button === returnButton) View.VISIBLE else View.GONE
     }
+
+    private fun configureBackgroundSync(enabled: Boolean) {
+        if (enabled) {
+            HealthSyncScheduler.schedule(applicationContext)
+        } else {
+            HealthSyncScheduler.cancel(applicationContext)
+        }
+    }
+
+    private fun formatCheckedAt(instant: java.time.Instant): String = instant
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("h:mm a"))
 
     private fun acceptWebConnectIntent(intent: Intent?) {
         val uri = intent?.data ?: return
@@ -260,5 +335,9 @@ class MainActivity : AppCompatActivity() {
         } catch (_: ActivityNotFoundException) {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$appId")))
         }
+    }
+
+    companion object {
+        private const val FOREGROUND_SYNC_INTERVAL_MILLIS = 60_000L
     }
 }

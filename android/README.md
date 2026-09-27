@@ -2,7 +2,7 @@
 
 This folder is a small native Android helper for the existing WithYou PWA. It does not replace or wrap the website.
 
-The helper asks for read-only access to Steps, Sleep, and Heart Rate. The WithYou website can open the installed helper through the package-scoped `withyou://health/connect` link. That flow requests any missing permissions, performs one foreground sync, and returns to the website. The same sync can still be started manually from the helper.
+The helper asks for read-only access to Steps, Sleep, and Heart Rate, plus Android's optional background-read access where supported. The WithYou website can open the installed helper through the package-scoped `withyou://health/connect` link. That flow requests missing permissions, performs an immediate sync, and returns to the website. The same sync can still be started manually from the helper.
 
 During a sync, the helper calculates everything locally on the phone:
 
@@ -13,7 +13,9 @@ During a sync, the helper calculates everything locally on the phone:
 - a 30-day average of completed sleep episodes;
 - a 30-day heart-rate average.
 
-Up to six normalized `SensorReading` summaries are sent to `/api/sensors/readings`: one current and one baseline summary per available category. The backend keeps only the latest six compact summaries in memory so the WithYou frontend can compare current values with personal baselines. Baseline metadata may include a count, minimum, maximum, and standard deviation, but never the underlying daily values, sleep sessions/stages, or heart-rate samples. Raw records are kept in memory only while calculating and are not written to disk or uploaded. Sync does not run in the background.
+Up to six normalized `SensorReading` summaries are sent to `/api/sensors/readings`: one current and one baseline summary per available category. The backend keeps only the latest six compact summaries in memory so the WithYou frontend can compare current values with personal baselines. Baseline metadata may include a count, minimum, maximum, and standard deviation, but never the underlying daily values, sleep sessions/stages, or heart-rate samples. Raw records are kept in memory only while calculating and are not written to disk or uploaded.
+
+The helper refreshes immediately on open, permission grant, and foreground return, then once per minute while visible. A stored SHA-256 fingerprint of the compact summaries prevents duplicate uploads when nothing changed; it is not a second health database. When background-read permission is supported and granted, WorkManager requests network-connected periodic work every 15 minutes, Android's minimum periodic interval. This timing is inexact: Doze, battery optimization, connectivity, and Samsung scheduling may delay a run. The manual **Sync health data** action remains available.
 
 ## Open and build
 
@@ -51,10 +53,10 @@ That URL works only after a release containing an asset named exactly `withyou-h
 1. Open `https://withyou-nine.vercel.app` in Chrome on the Android phone.
 2. Tap **Connect Health**.
 3. Android opens **WithYou Health Helper** and, when needed, shows the existing Health Connect read-permission screen.
-4. Allow Steps, Sleep, and Heart Rate. The helper performs one foreground sync using the existing compact-summary flow.
+4. Allow Steps, Sleep, Heart Rate, and background read access when Android offers it. The helper performs an immediate sync using the existing compact-summary flow.
 5. After a successful upload, the helper reopens WithYou. The website checks immediately and continues polling, so Health changes to **Connected / Synced** without a page refresh.
 
-If Health Connect needs to be installed or updated, the helper exposes an install/update action. **Review health permissions** first opens this helper’s Android health-permission screen, then falls back to general Health Connect settings and finally to short manual directions when Android offers neither route. Health Connect is integrated into Android 14 and newer; supported older Android versions use the Health Connect provider app. No background sync is added by this flow.
+If Health Connect needs to be installed or updated, the helper exposes an install/update action. **Review health permissions** first opens this helper’s Android health-permission screen, then falls back to general Health Connect settings and finally to short manual directions when Android offers neither route. Health Connect is integrated into Android 14 and newer; supported older Android versions use the Health Connect provider app. If background-read access is unavailable or declined, foreground automatic and manual refresh still work.
 
 ## Data-source labeling
 

@@ -204,6 +204,15 @@
                     android:textColor="@color/withyou_text"
                     android:textIsSelectable="true"
                     android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/lastSyncText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/last_sync_waiting"
+                    android:textColor="@color/withyou_text_muted"
+                    android:textSize="12sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

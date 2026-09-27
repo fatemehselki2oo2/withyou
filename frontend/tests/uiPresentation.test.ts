@@ -5,6 +5,7 @@ import {
   buildSourceRailItems,
   buildTodayPresentation,
   formatPersonalDelta,
+  healthPanelVisibility,
 } from '../src/uiPresentation.ts'
 
 test('source rail presents accurate text states without relying on color', () => {
@@ -108,4 +109,51 @@ test('baseline rows hide fallback comparisons while a metric is learning', () =>
   assert.equal(formatPersonalDelta(null, 7.3, 'qualified', 'h', 1), 'No recent reading')
   assert.equal(formatPersonalDelta(6.1, 7.3, 'qualified', 'h', 1), '1.2 h lower')
   assert.equal(formatPersonalDelta(74, 68, 'adapting', 'bpm'), '6 bpm higher')
+})
+
+test('connected Android Health keeps summaries and management available', () => {
+  assert.deepEqual(healthPanelVisibility({
+    healthState: 'connected',
+    isAndroid: true,
+    isDesktop: false,
+    helperMissing: false,
+  }), {
+    showSummaries: true,
+    showAndroidManagement: true,
+    showPrimaryInstall: false,
+    showDesktopManagementNote: false,
+  })
+})
+
+test('disconnected Android Health keeps setup and missing-helper recovery distinct', () => {
+  const helperAvailable = healthPanelVisibility({
+    healthState: 'not_connected',
+    isAndroid: true,
+    isDesktop: false,
+    helperMissing: false,
+  })
+  const helperMissing = healthPanelVisibility({
+    healthState: 'not_connected',
+    isAndroid: true,
+    isDesktop: false,
+    helperMissing: true,
+  })
+
+  assert.equal(helperAvailable.showAndroidManagement, true)
+  assert.equal(helperAvailable.showPrimaryInstall, false)
+  assert.equal(helperMissing.showAndroidManagement, false)
+  assert.equal(helperMissing.showPrimaryInstall, true)
+})
+
+test('connected desktop Health shows summaries without Android-only actions', () => {
+  const result = healthPanelVisibility({
+    healthState: 'connected',
+    isAndroid: false,
+    isDesktop: true,
+    helperMissing: false,
+  })
+
+  assert.equal(result.showSummaries, true)
+  assert.equal(result.showAndroidManagement, false)
+  assert.equal(result.showDesktopManagementNote, true)
 })

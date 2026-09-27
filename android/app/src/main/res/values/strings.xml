@@ -5,18 +5,20 @@
     <string name="helper_label">HEALTH HELPER</string>
     <string name="health_title">Connect health data</string>
     <string name="health_intro">Bring your steps, sleep, and heart-rate summaries into WithYou when you choose.</string>
-    <string name="privacy_note">Only compact summaries are shared with WithYou. Your detailed health history stays in Health Connect. Sync happens only while this helper is open.</string>
+    <string name="privacy_note">Only compact summaries are shared with WithYou. Your detailed health history stays in Health Connect. The helper refreshes about every minute while open. Android schedules background work no more often than about every 15 minutes, and may delay it for battery or network conditions.</string>
     <string name="status_label_checking">GETTING READY</string>
     <string name="status_checking">Checking your health connection…</string>
     <string name="status_detail_checking">This should only take a moment.</string>
     <string name="request_access">Allow health access</string>
+    <string name="allow_background_updates">Allow background updates</string>
     <string name="sync_summaries">Sync health data</string>
     <string name="install_health_connect">Install or update Health Connect</string>
     <string name="open_health_settings">Review health permissions</string>
     <string name="return_to_withyou">Return to WithYou</string>
-    <string name="results_title">YOUR LATEST SYNC</string>
+    <string name="results_title">YOUR LATEST SUMMARIES</string>
     <string name="results_empty">No health summaries synced yet.</string>
+    <string name="last_sync_waiting">Not synced yet · refreshes automatically while open</string>
     <string name="rationale_title">Why WithYou requests health access</string>
-    <string name="rationale_body">WithYou reads steps, sleep, and heart rate only after you grant access. This helper turns recent records into small summaries on your phone. Sync happens only while the helper is open. It does not upload individual heart-rate samples or your full health history. WithYou is a wellness project and does not provide a diagnosis or medical advice.</string>
+    <string name="rationale_body">WithYou reads steps, sleep, and heart rate only after you grant access. This helper turns recent records into small summaries on your phone and can refresh them automatically in the foreground or through battery-safe periodic background work. It does not upload individual heart-rate samples or your full health history. WithYou is a wellness project and does not provide a diagnosis or medical advice.</string>
     <string name="close">Close</string>
 </resources>
