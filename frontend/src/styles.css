@@ -412,6 +412,10 @@ input:focus, textarea:focus { border-color: #729086; box-shadow: 0 0 0 3px rgba(
 .health-summary-grid dt { color: #74807b; font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .health-summary-grid dd { overflow-wrap: anywhere; margin: 4px 0 0; color: #273c36; font-size: 16px; font-weight: 800; }
 .health-setup-guide { display: grid; gap: 13px; margin-bottom: 14px; }
+.health-bridge-message { display: grid; gap: 5px; margin-top: 12px; padding: 12px 13px; border: 1px solid #e2c3aa; border-radius: 12px; color: #5f5146; background: #f8eee4; }
+.health-bridge-message strong { font-size: 12px; }
+.health-bridge-message span, .health-bridge-message a { font-size: 11px; line-height: 1.45; }
+.health-bridge-message a { width: fit-content; color: #315e54; font-weight: 800; }
 .health-setup-guide h4 { margin: 0; font-size: 14px; }
 .setup-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: setup-step; }
 .setup-steps li { display: grid; grid-template-columns: 28px 1fr; column-gap: 9px; padding: 11px; border-radius: 11px; background: #eff1ec; counter-increment: setup-step; }

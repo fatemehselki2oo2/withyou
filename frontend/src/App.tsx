@@ -32,6 +32,11 @@ import {
 } from './homeSensor'
 import { fetchHealthConnectSummaries } from './healthConnect'
 import {
+  HEALTH_BRIDGE_INSTALL_HELP_URL,
+  healthBridgeIntentUrl,
+  healthBridgeReturnState,
+} from './healthBridge'
+import {
   applyHealthConnectBaselines,
   currentHealthReadings,
   selectHealthConnectSummaries,
@@ -161,6 +166,8 @@ function safeLocalCompanion(contextReasons: string[]): CompanionResult {
 export default function App() {
   const sleepDefaults = useMemo(defaultSleepTimes, [])
   const clinicalDateDefaults = useMemo(defaultClinicalDateRange, [])
+  const healthBridgeReturn = useMemo(() => healthBridgeReturnState(window.location.search), [])
+  const healthBridgeLink = useMemo(() => healthBridgeIntentUrl(window.location.href), [])
   const [baseline, setBaseline] = useState<BaselineProfile>(DEMO_BASELINE)
   const [adaptiveProfile, setAdaptiveProfile] = useState(() => createAdaptiveProfile(DEMO_BASELINE))
   const [adaptiveLoaded, setAdaptiveLoaded] = useState(false)
@@ -183,7 +190,16 @@ export default function App() {
   const [watchHealth, setWatchHealth] = useState<ExternalSourceHealth>({})
   const [healthSummaryReadings, setHealthSummaryReadings] = useState<SensorReading[]>([])
   const [healthRefreshKey, setHealthRefreshKey] = useState(0)
-  const [healthGuideStarted, setHealthGuideStarted] = useState(false)
+  const [healthGuideStarted, setHealthGuideStarted] = useState(healthBridgeReturn != null)
+  const [healthBridgeMessage, setHealthBridgeMessage] = useState(() => {
+    if (healthBridgeReturn === 'not_installed') {
+      return 'The WithYou Health Bridge did not open. It may not be installed on this phone.'
+    }
+    if (healthBridgeReturn === 'sync_complete') {
+      return 'Health sync finished. WithYou is checking for your compact summaries now.'
+    }
+    return ''
+  })
   const [companionInput, setCompanionInput] = useState('')
   const [companionResult, setCompanionResult] = useState<CompanionResult | null>(null)
   const [companionBusy, setCompanionBusy] = useState(false)
@@ -246,8 +262,12 @@ export default function App() {
         return
       }
       resumePhoneRef.current()
+      setHealthRefreshKey((value) => value + 1)
     }
-    const resumeWhenFocused = () => resumePhoneRef.current()
+    const resumeWhenFocused = () => {
+      resumePhoneRef.current()
+      setHealthRefreshKey((value) => value + 1)
+    }
     document.addEventListener('visibilitychange', pauseWhenHidden)
     window.addEventListener('focus', resumeWhenFocused)
     window.addEventListener('pageshow', resumeWhenFocused)
@@ -1015,17 +1035,21 @@ export default function App() {
               <div><dt>Sleep</dt><dd>{currentHealthMetrics.sleep ? `${currentHealthMetrics.sleep.value.toFixed(1)} h` : 'Not available'}</dd></div>
               <div><dt>Heart rate</dt><dd>{currentHealthMetrics.heart_rate ? `${Math.round(currentHealthMetrics.heart_rate.value)} bpm` : 'Not available'}</dd></div>
             </dl>}
-            {healthState !== 'connected' && !healthGuideStarted && <button className="primary" type="button" onClick={() => setHealthGuideStarted(true)}>Connect Health</button>}
+            {healthState !== 'connected' && <a className="button-link primary" href={healthBridgeLink} onClick={() => {
+              setHealthGuideStarted(true)
+              setHealthBridgeMessage('Opening the WithYou Health Bridge… If Android keeps you here, use the hackathon install help below.')
+            }}>{healthGuideStarted ? 'Open Health Bridge' : 'Connect Health'}</a>}
+            {healthState !== 'connected' && healthBridgeMessage && <div className="health-bridge-message" role="status"><strong>{healthBridgeMessage}</strong><span>The bridge is a separate hackathon Android app and is not listed in an app store.</span><a href={HEALTH_BRIDGE_INSTALL_HELP_URL} target="_blank" rel="noreferrer">View hackathon install instructions</a></div>}
             {(healthGuideStarted || healthState === 'sync_needed') && healthState !== 'connected' && <div className="health-setup-guide">
               <h4>On your Android phone</h4>
               <ol className="setup-steps">
                 <li><strong>Check your health source.</strong><span>Make sure Samsung Health or another app has recent steps, sleep, or heart-rate data.</span></li>
                 <li><strong>Allow Health Connect access.</strong><span>In Health Connect, let the source app write those records.</span></li>
-                <li><strong>Open the WithYou Health Bridge.</strong><span>Choose Request read access, then allow Steps, Sleep, and Heart rate.</span></li>
-                <li><strong>Sync recent summaries.</strong><span>Return here afterward; WithYou checks automatically every 15 seconds.</span></li>
+                <li><strong>Open the WithYou Health Bridge.</strong><span>The Connect Health button opens it directly when it is installed.</span></li>
+                <li><strong>Allow and sync.</strong><span>Grant Steps, Sleep, and Heart rate access. The bridge syncs compact summaries and returns here automatically.</span></li>
               </ol>
               <a className="button-link" href="intent:#Intent;action=android.health.connect.action.HEALTH_CONNECT_SETTINGS;end">Open Health Connect settings</a>
-              <p className="microcopy">Android only. If the button does not open settings, go to Settings → Security &amp; privacy → Health Connect. The Health Bridge is required because a browser cannot directly request Health Connect permissions.</p>
+              <p className="microcopy">Android only. If the settings button does not open, go to Settings → Security &amp; privacy → Health Connect. WithYou checks immediately when this page becomes active again and continues checking every 15 seconds.</p>
             </div>}
             <button type="button" onClick={() => setHealthRefreshKey((value) => value + 1)}>{healthState === 'connected' ? 'Refresh summaries' : 'Check sync again'}</button>
           </section>

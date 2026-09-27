@@ -248,7 +248,8 @@ Every report is labeled **For discussion with a healthcare professional — not 
 2. Open the [`android/`](android/) folder as an Android Studio project and allow Gradle sync to complete.
 3. The bridge defaults to `https://withyou-1g5l.onrender.com`. To use another public HTTPS backend, set `WITHYOU_API_BASE_URL` in your user Gradle properties or pass `-PWITHYOU_API_BASE_URL=https://...`.
 4. Do not place `OPENAI_API_KEY` or any secret in Gradle properties used by the Android app. Only the public backend URL belongs there.
-5. Run the `app` configuration on a physical Android 9+ phone. Health Connect is built into Android 14+; Android 13 and lower require the Health Connect Play Store app.
+5. Run the `app` configuration on a physical Android 9+ phone. Health Connect is built into Android 14+; supported older Android versions require the Health Connect provider app.
+6. The production build returns to `https://withyou-nine.vercel.app` after a web-started sync. For another public frontend, set the non-secret `WITHYOU_WEB_URL` Gradle property. The bridge is a hackathon build and has no app-store listing.
 
 The Android project uses stable `androidx.health.connect:connect-client:1.1.0`. See [`android/README.md`](android/README.md) for the bridge's exact summary rules.
 
@@ -257,11 +258,12 @@ The Android project uses stable `androidx.health.connect:connect-client:1.1.0`. 
 1. Pair the Galaxy Watch with Samsung Health and confirm recent steps, sleep, or heart-rate data is visible in Samsung Health.
 2. In Samsung Health, open **Settings → Health Connect**, connect Samsung Health, and allow Samsung Health to write the three data types. Menu wording can vary by Samsung Health version.
 3. On Android 14+, open **Settings → Security and privacy → Privacy controls → Health Connect**. On Android 13 or lower, install/open the Health Connect app from Google Play.
-4. Install/run **WithYou Health Bridge** from Android Studio.
-5. Tap **Request read access**, enable Steps, Sleep, and Heart Rate, and return to the bridge.
-6. Tap **Sync recent summaries**. The screen should list only available summaries and say they were accepted.
-7. Open the deployed WithYou PWA, go to **Sources**, and wait up to 15 seconds. **Watch / Health** should show Connected with the last backend receipt time.
-8. Confirm the manual sleep/mood controls, motion, sound, Home Sensor, companion text/voice, and installed PWA still behave normally.
+4. Install/run **WithYou Health Bridge** from Android Studio. It is not published in an app store.
+5. Open `https://withyou-nine.vercel.app` in Chrome on the same phone and tap **Connect Health**. Android should open the bridge directly.
+6. Enable Steps, Sleep, and Heart Rate when Android asks. The bridge should perform one foreground sync, list only compact available summaries, and return to WithYou.
+7. The PWA should check immediately, then continue polling every 15 seconds. **Health** should change to Connected / Synced and show the latest steps, sleep, and heart-rate summaries without a manual refresh.
+8. If the bridge is not installed, confirm the PWA stays open, explains that no app-store listing exists, and links to the hackathon Android install instructions.
+9. Confirm the manual sleep/mood controls, motion, Home Sensor, companion text/explicit voice input, and installed PWA still behave normally.
 
 If no summaries appear, first confirm Samsung Health has written records into Health Connect under **Data and access**, then recheck WithYou Health Bridge's three read permissions. The backend connection status is prototype in-memory state and resets when the Render process restarts.
 

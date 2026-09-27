@@ -26,6 +26,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var requestAccessButton: Button
     private lateinit var syncButton: Button
     private lateinit var installButton: Button
+    private var pendingWebConnect = false
+    private var autoSyncAfterPermission = false
+    private var returnToWebAfterSync = false
+    private var syncInProgress = false
 
     private val permissionLauncher = registerForActivityResult(
         HealthConnectRepository.permissionContract(),
@@ -37,6 +41,12 @@ class MainActivity : AppCompatActivity() {
             "Some access was not granted. Steps, sleep, and heart rate are all needed for this demo."
         }
         syncButton.isEnabled = allGranted
+        if (allGranted && autoSyncAfterPermission) {
+            autoSyncAfterPermission = false
+            syncSummaries()
+        } else if (!allGranted) {
+            autoSyncAfterPermission = false
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,12 +59,20 @@ class MainActivity : AppCompatActivity() {
         requestAccessButton = findViewById(R.id.requestAccessButton)
         syncButton = findViewById(R.id.syncButton)
         installButton = findViewById(R.id.installButton)
+        acceptWebConnectIntent(intent)
 
         requestAccessButton.setOnClickListener {
             permissionLauncher.launch(HealthConnectRepository.REQUIRED_PERMISSIONS)
         }
         syncButton.setOnClickListener { syncSummaries() }
         installButton.setOnClickListener { openHealthConnectStorePage() }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        acceptWebConnectIntent(intent)
+        refreshAvailabilityAndPermissions()
     }
 
     override fun onResume() {
@@ -75,6 +93,16 @@ class MainActivity : AppCompatActivity() {
                         "Health Connect is ready. Tap Request read access."
                     }
                     syncButton.isEnabled = granted
+                    if (pendingWebConnect) {
+                        pendingWebConnect = false
+                        if (granted) {
+                            syncSummaries()
+                        } else {
+                            autoSyncAfterPermission = true
+                            statusText.text = "WithYou needs read access before it can sync."
+                            permissionLauncher.launch(HealthConnectRepository.REQUIRED_PERMISSIONS)
+                        }
+                    }
                 }
             }
             HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> {
@@ -91,6 +119,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncSummaries() {
+        if (syncInProgress) return
+        syncInProgress = true
         requestAccessButton.isEnabled = false
         syncButton.isEnabled = false
         statusText.text = "Reading and summarizing on this phone…"
@@ -113,16 +143,37 @@ class MainActivity : AppCompatActivity() {
                 val uploaded = apiClient.upload(summaries)
                 statusText.text = "Connected. $uploaded compact Health Connect summaries were accepted by WithYou."
                 resultsText.text = summaries.joinToString(separator = "\n") { "• ${it.displayLine()}" }
+                if (returnToWebAfterSync) {
+                    returnToWebAfterSync = false
+                    openWithYouWeb()
+                }
             } catch (error: Exception) {
                 statusText.text = "Sync did not finish. Your raw Health Connect data was not uploaded."
                 resultsText.text = error.message ?: "Unknown sync error."
             } finally {
+                syncInProgress = false
                 requestAccessButton.isEnabled = true
                 // Permission can be revoked from Settings at any time, including
                 // while this Activity is alive, so re-check instead of assuming.
                 syncButton.isEnabled = healthRepository.hasAllPermissions()
             }
         }
+    }
+
+    private fun acceptWebConnectIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "withyou" && uri.host == "health" && uri.path == "/connect") {
+            pendingWebConnect = true
+            returnToWebAfterSync = true
+        }
+    }
+
+    private fun openWithYouWeb() {
+        val uri = Uri.parse(BuildConfig.WITHYOU_WEB_URL)
+            .buildUpon()
+            .appendQueryParameter("health_sync", "complete")
+            .build()
+        startActivity(Intent(Intent.ACTION_VIEW, uri))
     }
 
     private fun setHealthButtonsEnabled(enabled: Boolean) {

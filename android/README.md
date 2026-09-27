@@ -2,7 +2,9 @@
 
 This folder is a small native Android companion for the existing WithYou PWA. It does not replace or wrap the website.
 
-The bridge asks for read-only access to Steps, Sleep, and Heart Rate. When the user taps **Sync recent summaries**, it calculates everything locally on the phone:
+The bridge asks for read-only access to Steps, Sleep, and Heart Rate. The WithYou website can open the installed bridge through the package-scoped `withyou://health/connect` link. That flow requests any missing permissions, performs one foreground sync, and returns to the website. The same sync can still be started manually from the bridge.
+
+During a sync, the bridge calculates everything locally on the phone:
 
 - today's aggregate step count;
 - the most recent completed full sleep duration (parent sessions that overlap or are no more than one hour apart are merged so a final fragment is not selected by itself);
@@ -27,6 +29,24 @@ WITHYOU_API_BASE_URL=https://your-backend.example.com
 ```
 
 You can also pass `-PWITHYOU_API_BASE_URL=https://...` to Gradle. This value is bundled into the app, so it must be a public URL only. Never use it for `OPENAI_API_KEY` or another secret.
+
+The bridge returns to `https://withyou-nine.vercel.app` after a web-started sync. For a different public frontend, set another non-secret Gradle property:
+
+```properties
+WITHYOU_WEB_URL=https://your-frontend.example.com
+```
+
+This hackathon bridge is not published in an app store. Install it by running the `app` configuration from Android Studio on the phone, or build `assembleDebug` and install the generated debug APK on a test device. After it is installed, **Connect Health** on the website opens it directly. If it is missing, the website stays open and shows these install instructions instead of claiming an app-store download exists.
+
+## Connect from the WithYou website
+
+1. Open `https://withyou-nine.vercel.app` in Chrome on the Android phone.
+2. Tap **Connect Health**.
+3. Android opens **WithYou Health Bridge** and, when needed, shows the existing Health Connect read-permission screen.
+4. Allow Steps, Sleep, and Heart Rate. The bridge performs one foreground sync using the existing compact-summary API.
+5. After a successful upload, the bridge reopens WithYou. The website checks immediately and continues polling, so Health changes to **Connected / Synced** without a page refresh.
+
+If Health Connect needs to be installed or updated, the bridge exposes its existing install/update action. Health Connect is integrated into Android 14 and newer; supported older Android versions use the Health Connect provider app. No background sync is added by this flow.
 
 ## Data-source labeling
 

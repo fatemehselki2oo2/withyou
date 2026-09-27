@@ -37,10 +37,22 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Opened explicitly from the WithYou web app. The frontend also
+                 pins the package name so another app cannot receive this flow. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="health"
+                    android:pathPrefix="/connect"
+                    android:scheme="withyou" />
             </intent-filter>
         </activity>
     </application>

@@ -6,6 +6,9 @@ plugins {
 val withYouApiBaseUrl = providers.gradleProperty("WITHYOU_API_BASE_URL")
     .orElse(providers.environmentVariable("WITHYOU_API_BASE_URL"))
     .orElse("https://withyou-1g5l.onrender.com")
+val withYouWebUrl = providers.gradleProperty("WITHYOU_WEB_URL")
+    .orElse(providers.environmentVariable("WITHYOU_WEB_URL"))
+    .orElse("https://withyou-nine.vercel.app")
 
 android {
     namespace = "com.withyou.healthbridge"
@@ -21,6 +24,7 @@ android {
 
         // This is a public backend URL, not a secret. Never put API keys here.
         buildConfigField("String", "WITHYOU_API_BASE_URL", "\"${withYouApiBaseUrl.get()}\"")
+        buildConfigField("String", "WITHYOU_WEB_URL", "\"${withYouWebUrl.get()}\"")
     }
 
     buildFeatures {
