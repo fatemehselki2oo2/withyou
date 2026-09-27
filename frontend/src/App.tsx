@@ -36,9 +36,9 @@ import {
   currentHealthReadings,
   selectHealthConnectSummaries,
 } from './healthSummarySelection'
-import { startMotionSession, type MotionSession } from './motion'
+import { startMotionSession, type MotionFailureReason, type MotionSession } from './motion'
 import { analyzePatterns, buildWellnessContext, latestReading } from './patternAnalyzer'
-import { measureEnvironmentSound, type SoundClassification } from './sound'
+import { canUseVoiceInput, requestVoiceInputStream } from './voiceInput'
 import {
   CLINICAL_SUMMARY_DISCLAIMER,
   generateClinicalSummary,
@@ -63,8 +63,7 @@ import type {
 } from './types'
 import './styles.css'
 
-type SensorStatus = 'awaiting' | 'starting' | 'connected' | 'unavailable' | 'stopped'
-type SoundStatus = 'awaiting' | 'measuring' | 'connected' | 'unavailable'
+type PhoneStatus = 'permission_needed' | 'connecting' | 'connected' | 'unavailable'
 type ExternalSourceHealth = {
   connected?: boolean
   last_reading_at?: string | null
@@ -117,19 +116,6 @@ function defaultSleepTimes() {
   return { start: localInputValue(start), wake: localInputValue(wake) }
 }
 
-function soundReading(classification: SoundClassification, value: number): SensorReading {
-  return {
-    timestamp: new Date().toISOString(),
-    source: 'phone',
-    sensor_type: 'sound_level',
-    value,
-    unit: 'relative',
-    confidence: 0.9,
-    is_simulated: true,
-    metadata: { classification },
-  }
-}
-
 function activitySensor(reading: ActivityReading): SensorReading {
   return {
     timestamp: reading.timestamp,
@@ -179,10 +165,8 @@ export default function App() {
   const [adaptiveProfile, setAdaptiveProfile] = useState(() => createAdaptiveProfile(DEMO_BASELINE))
   const [adaptiveLoaded, setAdaptiveLoaded] = useState(false)
   const [readings, setReadings] = useState<SensorReading[]>([])
-  const [motionStatus, setMotionStatus] = useState<SensorStatus>('awaiting')
-  const [motionMessage, setMotionMessage] = useState('Tap Start motion to request phone motion access.')
-  const [soundStatus, setSoundStatus] = useState<SoundStatus>('awaiting')
-  const [soundMessage, setSoundMessage] = useState('Sound level is measured only when you ask.')
+  const [motionStatus, setMotionStatus] = useState<PhoneStatus>('permission_needed')
+  const [motionMessage, setMotionMessage] = useState('Connect Phone to use motion while WithYou is open.')
   const [sleepStart, setSleepStart] = useState(sleepDefaults.start)
   const [wakeTime, setWakeTime] = useState(sleepDefaults.wake)
   const [sleepMessage, setSleepMessage] = useState('')
@@ -198,6 +182,8 @@ export default function App() {
   const [homeSessionMessage, setHomeSessionMessage] = useState('Enter the Pico W demo code to receive live readings on this phone.')
   const [watchHealth, setWatchHealth] = useState<ExternalSourceHealth>({})
   const [healthSummaryReadings, setHealthSummaryReadings] = useState<SensorReading[]>([])
+  const [healthRefreshKey, setHealthRefreshKey] = useState(0)
+  const [healthGuideStarted, setHealthGuideStarted] = useState(false)
   const [companionInput, setCompanionInput] = useState('')
   const [companionResult, setCompanionResult] = useState<CompanionResult | null>(null)
   const [companionBusy, setCompanionBusy] = useState(false)
@@ -216,6 +202,8 @@ export default function App() {
   const [activeSourcePanel, setActiveSourcePanel] = useState<SourceRailId | null>(null)
   const [clinicalPanelOpen, setClinicalPanelOpen] = useState(false)
   const sessionRef = useRef<MotionSession | null>(null)
+  const phoneAutoResumeRef = useRef(false)
+  const resumePhoneRef = useRef<() => void>(() => undefined)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
@@ -247,6 +235,26 @@ export default function App() {
     return () => {
       sessionRef.current?.stop()
       mediaRecorderRef.current?.stream.getTracks().forEach((track) => track.stop())
+    }
+  }, [])
+
+  useEffect(() => {
+    const pauseWhenHidden = () => {
+      if (document.visibilityState === 'hidden') {
+        sessionRef.current?.stop()
+        sessionRef.current = null
+        return
+      }
+      resumePhoneRef.current()
+    }
+    const resumeWhenFocused = () => resumePhoneRef.current()
+    document.addEventListener('visibilitychange', pauseWhenHidden)
+    window.addEventListener('focus', resumeWhenFocused)
+    window.addEventListener('pageshow', resumeWhenFocused)
+    return () => {
+      document.removeEventListener('visibilitychange', pauseWhenHidden)
+      window.removeEventListener('focus', resumeWhenFocused)
+      window.removeEventListener('pageshow', resumeWhenFocused)
     }
   }, [])
 
@@ -294,7 +302,7 @@ export default function App() {
       active = false
       window.clearInterval(interval)
     }
-  }, [])
+  }, [healthRefreshKey])
 
   useEffect(() => {
     if (!homeSessionId) return
@@ -382,7 +390,6 @@ export default function App() {
   const sleep = latestReading(comparisonReadings, 'sleep')
   const steps = latestReading(comparisonReadings, 'steps')
   const heartRate = latestReading(comparisonReadings, 'heart_rate')
-  const sound = latestReading(comparisonReadings, 'sound_level')
   const temperature = latestReading(comparisonReadings, 'temperature')
   const humidity = latestReading(comparisonReadings, 'humidity')
   const light = latestReading(comparisonReadings, 'light')
@@ -448,36 +455,40 @@ export default function App() {
     await Promise.all([recordSensor(activitySensor(reading)), saveReading(reading)])
   }
 
-  const handleStartMotion = async () => {
-    sessionRef.current?.stop()
-    setMotionStatus('starting')
-    setMotionMessage('Requesting motion access…')
+  const startPhoneMotion = async (requestPermission: boolean) => {
+    if (sessionRef.current) return
+    setMotionStatus('connecting')
+    setMotionMessage(requestPermission ? 'Requesting motion permission…' : 'Resuming phone motion…')
     try {
       const session = await startMotionSession(
         (reading) => {
           setMotionStatus('connected')
-          setMotionMessage('Phone motion is summarized every three seconds.')
+          setMotionMessage('Connected · updating automatically while WithYou is open.')
           void recordActivity(reading)
         },
-        (message) => {
-          setMotionStatus('unavailable')
+        (reason: MotionFailureReason, message) => {
+          setMotionStatus(reason === 'permission_denied' ? 'permission_needed' : 'unavailable')
           setMotionMessage(message)
           sessionRef.current = null
+          phoneAutoResumeRef.current = false
         },
+        { requestPermission },
       )
       sessionRef.current = session
-      if (session) setMotionMessage('Listening for the first motion window…')
+      phoneAutoResumeRef.current = Boolean(session)
+      if (session) setMotionMessage('Connected · waiting for the first motion update…')
     } catch {
-      setMotionStatus('unavailable')
-      setMotionMessage('Motion permission failed. Demo controls are ready.')
+      setMotionStatus('permission_needed')
+      setMotionMessage('Motion permission is needed to connect this phone.')
+      phoneAutoResumeRef.current = false
     }
   }
 
-  const handleStopMotion = () => {
-    sessionRef.current?.stop()
-    sessionRef.current = null
-    setMotionStatus('stopped')
-    setMotionMessage('Motion sensing stopped. Saved summaries remain local.')
+  const handleConnectPhone = () => void startPhoneMotion(true)
+  resumePhoneRef.current = () => {
+    if (phoneAutoResumeRef.current && !sessionRef.current && document.visibilityState === 'visible') {
+      void startPhoneMotion(false)
+    }
   }
 
   const addDemoActivity = (state: ActivityState, level = DEMO_LEVELS[state]) => {
@@ -488,20 +499,6 @@ export default function App() {
       state,
       is_simulated: true,
     })
-  }
-
-  const handleMeasureSound = async () => {
-    setSoundStatus('measuring')
-    setSoundMessage('Requesting microphone access…')
-    try {
-      const reading = await measureEnvironmentSound(setSoundMessage)
-      await recordSensor(reading)
-      setSoundStatus('connected')
-      setSoundMessage(`Measured a ${String(reading.metadata.classification)} environment. No recording was saved.`)
-    } catch {
-      setSoundStatus('unavailable')
-      setSoundMessage('Microphone access failed. Quiet, Normal, and Loud demos are available.')
-    }
   }
 
   const saveSleep = async () => {
@@ -555,13 +552,12 @@ export default function App() {
       confidence: 1, is_simulated: true, metadata: { label, scenario },
     })
     const demoMap: Record<string, SensorReading[]> = {
-      normal: [activityDemo(0.68, 'walking'), sleepDemo(7.6), moodDemo('good'), soundReading('normal', 0.4), environmentReading('temperature', 72, 'fahrenheit', 'normal room')],
+      normal: [activityDemo(0.68, 'walking'), sleepDemo(7.6), moodDemo('good'), environmentReading('temperature', 72, 'fahrenheit', 'normal room')],
       low: [activityDemo(0.25, 'still')],
       sleep: [sleepDemo(4.8)],
       stress: [moodDemo('stressed')],
-      loud: [soundReading('loud', 0.86)],
       warm: [environmentReading('temperature', 83, 'fahrenheit', 'warm room')],
-      combined: [activityDemo(0.24, 'still'), sleepDemo(4.9), moodDemo('stressed'), soundReading('loud', 0.84), environmentReading('temperature', 82, 'fahrenheit', 'warm room')],
+      combined: [activityDemo(0.24, 'still'), sleepDemo(4.9), moodDemo('stressed'), environmentReading('temperature', 82, 'fahrenheit', 'warm room')],
     }
     void recordSensors(demoMap[scenario] ?? [])
   }
@@ -599,12 +595,12 @@ export default function App() {
       if (!response.ok) throw new Error('voice unavailable')
       const result = await response.json() as CompanionResult
       setCompanionResult(result)
-      if (result.audio_base64 && result.audio_mime_type) {
-        setAudioUrl(`data:${result.audio_mime_type};base64,${result.audio_base64}`)
-      } else {
-        setAudioUrl(null)
-      }
-      setVoiceMessage(result.audio_available ? 'Response ready. The playback voice is AI-generated.' : 'Text response ready; spoken playback was unavailable.')
+      setAudioUrl(result.audio_base64 && result.audio_mime_type
+        ? `data:${result.audio_mime_type};base64,${result.audio_base64}`
+        : null)
+      setVoiceMessage(result.audio_available
+        ? 'Response ready. The playback voice is AI-generated.'
+        : 'Text response ready; spoken playback was unavailable.')
     } catch {
       setCompanionResult(safeLocalCompanion(pattern.reasons))
       setVoiceMessage('Voice processing was unavailable. Typed chat still works.')
@@ -615,13 +611,16 @@ export default function App() {
   }
 
   const startVoice = async () => {
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setVoiceMessage('Voice recording is unavailable here. Typed chat still works.')
+    if (!canUseVoiceInput()) {
+      setVoiceMessage('Voice input is unavailable here. Typed chat still works.')
       return
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const preferred = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((type) => MediaRecorder.isTypeSupported(type))
+      // This user-initiated action is the only microphone request in the app.
+      // Audio is sent to the companion endpoint and never becomes sensor data.
+      const stream = await requestVoiceInputStream()
+      const preferred = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm']
+        .find((type) => MediaRecorder.isTypeSupported(type))
       const recorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream)
       audioChunksRef.current = []
       recorder.ondataavailable = (event) => {
@@ -630,15 +629,14 @@ export default function App() {
       recorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop())
         const baseType = recorder.mimeType.split(';')[0] || 'audio/webm'
-        const blob = new Blob(audioChunksRef.current, { type: baseType })
-        void submitVoice(blob)
+        void submitVoice(new Blob(audioChunksRef.current, { type: baseType }))
       }
       recorder.start()
       mediaRecorderRef.current = recorder
       setRecording(true)
       setVoiceMessage('Recording… Tap Stop when you’re finished.')
     } catch {
-      setVoiceMessage('Microphone permission failed. Typed chat still works.')
+      setVoiceMessage('Microphone permission was not granted. Typed chat still works.')
     }
   }
 
@@ -747,7 +745,6 @@ export default function App() {
   }
 
   const activityState = typeof activity?.metadata.state === 'string' ? activity.metadata.state : 'waiting'
-  const soundClass = typeof sound?.metadata.classification === 'string' ? sound.metadata.classification : 'not measured'
   const moodLabel = typeof mood?.metadata.label === 'string' ? mood.metadata.label : 'Not checked in'
   const overallBaselineState = adaptiveBaselineState(adaptiveProfile)
   const todayPresentation = buildTodayPresentation({
@@ -757,19 +754,29 @@ export default function App() {
     firstReason: pattern.reasons[0],
     missingSourceCount: pattern.missing_sources.length,
   })
-  const healthConnected = Boolean(watchHealth.connected || healthSummaryReadings.length)
+  const currentHealthMetrics = selectedHealthSummaries.current
+  const healthCurrentCount = Object.values(currentHealthMetrics).filter(Boolean).length
+  const healthLastSyncedAt = healthSummaryReadings.reduce<string | undefined>((latest, reading) => (
+    !latest || new Date(reading.timestamp) > new Date(latest) ? reading.timestamp : latest
+  ), watchHealth.last_reading_at ?? undefined)
+  const healthState = healthCurrentCount > 0 ? 'connected' : watchHealth.connected ? 'sync_needed' : 'not_connected'
+  const phoneState = motionStatus === 'connected'
+    ? 'connected'
+    : motionStatus === 'unavailable' ? 'unavailable' : 'permission_needed'
   const homeRailState = !homeSessionId
     ? 'not_paired'
     : !homeSessionUpdatedAt
       ? 'connecting'
       : homeSessionFreshness.state === 'live' ? 'live' : 'offline'
   const sourceRailItems = buildSourceRailItems({
-    phoneConnected: motionStatus === 'connected' || soundStatus === 'connected',
-    phoneDetail: motionStatus === 'connected' && soundStatus === 'connected'
-      ? 'Motion and sound ready'
-      : motionStatus === 'connected' ? 'Motion ready · sound optional' : soundStatus === 'connected' ? 'Sound ready · motion optional' : 'Motion and sound are optional',
-    healthConnected,
-    healthDetail: healthConnected ? `Last synced ${formatTime(watchHealth.last_reading_at ?? healthSummaryReadings.at(-1)?.timestamp)}` : 'No Health Connect summary yet',
+    phoneState,
+    phoneDetail: motionStatus === 'connected'
+      ? 'Updating motion automatically'
+      : motionStatus === 'unavailable' ? 'Motion is unavailable here' : 'Tap to connect motion',
+    healthState,
+    healthDetail: healthState === 'connected'
+      ? `Last synced ${formatTime(healthLastSyncedAt)}`
+      : healthState === 'sync_needed' ? 'Open the Android bridge to sync' : 'Connect on a supported Android phone',
     homeState: homeRailState,
     homeDetail: homeSessionId ? (homeSessionUpdatedAt ? homeSessionFreshness.label : `Pairing ${homeSessionId}`) : 'Connect with a demo code',
     checkInDetail: mood ? `Last check-in ${formatTime(mood.timestamp)}` : 'Sleep and mood are available',
@@ -822,8 +829,8 @@ export default function App() {
     .flatMap((qualification) => qualification.conflicting_sources)
     .map(readableSourceName))]
   const sourcePanelTitles: Record<SourceRailId, { title: string; description: string }> = {
-    phone: { title: 'Phone sources', description: 'Choose motion and sound-level sensing independently. Both require your permission.' },
-    health: { title: 'Health Connect', description: 'Health data is synced by the Android bridge, not directly by this browser.' },
+    phone: { title: 'Connect Phone', description: 'Use motion to summarize activity while WithYou is open.' },
+    health: { title: 'Connect Health', description: 'Bring in compact steps, sleep, and heart-rate summaries from Health Connect.' },
     home: { title: 'Home Sensor', description: 'Pair this browser with the temporary Pico W demo session.' },
     checkins: { title: 'Manual check-ins', description: 'Sleep and mood entries stay in this browser’s local storage.' },
   }
@@ -875,8 +882,10 @@ export default function App() {
           </div>
           <div className="inline-input"><input aria-label="Add optional check-in context" value={customMood} maxLength={160} placeholder="Add a little context…" onChange={(event) => setCustomMood(event.target.value)} /><button onClick={() => customMood.trim() && checkInMood('custom', customMood.trim())}>Save locally</button></div>
           <div className="support-actions">
-            {!recording ? <button type="button" onClick={() => void startVoice()} disabled={companionBusy}>Talk to WithYou <span aria-hidden="true">🎙️</span></button> : <button type="button" className="recording-button" onClick={stopVoice}>Stop recording</button>}
-            <span>{voiceMessage || 'Mood is voluntary and never inferred from sound.'}</span>
+            {!recording
+              ? <button type="button" onClick={() => void startVoice()} disabled={companionBusy}>Talk to WithYou <span aria-hidden="true">🎙️</span></button>
+              : <button type="button" className="recording-button" onClick={stopVoice}>Stop recording</button>}
+            <span>{voiceMessage || 'Voice input starts only when you tap. It is never used as sensor data.'}</span>
           </div>
           <details className="inline-disclosure">
             <summary>Write a message to WithYou</summary>
@@ -949,13 +958,12 @@ export default function App() {
               <div className="demo-buttons">
                 <button onClick={() => runDemo('normal')}>Normal Day</button><button onClick={() => runDemo('low')}>Low Activity</button>
                 <button onClick={() => runDemo('sleep')}>Poor Sleep</button><button onClick={() => runDemo('stress')}>Stress Check-In</button>
-                <button onClick={() => runDemo('loud')}>Loud Environment</button><button onClick={() => runDemo('warm')}>Warm Room</button>
+                <button onClick={() => runDemo('warm')}>Warm Room</button>
                 <button className="accent-button" onClick={() => runDemo('combined')}>Combined Different Day</button>
               </div>
               <h3>Individual phone and room values</h3>
               <div className="demo-buttons">
                 <button onClick={() => addDemoActivity('still')}>Sitting Still</button><button onClick={() => addDemoActivity('walking')}>Walking</button><button onClick={() => addDemoActivity('active')}>Active</button><button onClick={() => addDemoActivity('sleeping')}>Sleeping</button>
-                <button onClick={() => void recordSensor(soundReading('quiet', 0.08))}>Quiet Sound</button><button onClick={() => void recordSensor(soundReading('normal', 0.42))}>Normal Sound</button><button onClick={() => void recordSensor(soundReading('loud', 0.86))}>Loud Sound</button>
                 <button onClick={() => void recordSensors([environmentReading('temperature', 72, 'fahrenheit', 'normal room'), environmentReading('humidity', 45, 'percent', 'normal room'), environmentReading('light', 400, 'lux', 'normal room')])}>Normal Room</button>
                 <button onClick={() => void recordSensor(environmentReading('temperature', 83, 'fahrenheit', 'warm room'))}>Warm Room</button><button onClick={() => void recordSensor(environmentReading('temperature', 63, 'fahrenheit', 'cool room'))}>Cool Room</button><button onClick={() => void recordSensor(environmentReading('light', 35, 'lux', 'low light'))}>Low Light</button><button onClick={() => void recordSensor(environmentReading('humidity', 78, 'percent', 'high humidity'))}>High Humidity</button>
               </div>
@@ -974,7 +982,7 @@ export default function App() {
               <div className="privacy-copy">
                 <p>WithYou notices changes in patterns. It does not diagnose conditions.</p>
                 <p>Raw wellness history stays on your device whenever possible.</p>
-                <p>Sound sensing measures amplitude only and never saves conversations.</p>
+                <p>Phone sensing uses motion only and runs while WithYou is open and active.</p>
               </div>
               <button className="danger-button" onClick={() => void deleteData()}>Delete My Local Data</button>
             </div>
@@ -991,17 +999,37 @@ export default function App() {
         onClose={() => setActiveSourcePanel(null)}
       >
         {activeSourcePanel === 'phone' && <div className="panel-stack">
-          <section><div className="panel-section-heading"><div><p className="eyebrow">Phone motion</p><h3>Movement summaries</h3></div><span className={`status-label ${motionStatus === 'connected' ? 'live' : 'muted'}`}>{motionStatus === 'connected' ? 'Connected' : 'Permission required'}</span></div>
-            <div className="primary-controls"><button className="primary" onClick={() => void handleStartMotion()} disabled={motionStatus === 'starting' || motionStatus === 'connected'}>Start motion</button><button onClick={handleStopMotion} disabled={!sessionRef.current}>Stop</button></div>
-            <p className={`sensor-message ${motionStatus === 'unavailable' ? 'warning' : ''}`}>{motionMessage}</p>
-          </section>
-          <section><div className="panel-section-heading"><div><p className="eyebrow">Phone microphone</p><h3>Environmental sound level</h3></div><span className={`status-label ${soundStatus === 'connected' ? 'live' : 'muted'}`}>{soundStatus === 'connected' ? 'Ready' : 'Permission required'}</span></div>
-            <button className="primary" onClick={() => void handleMeasureSound()} disabled={soundStatus === 'measuring'}>{soundStatus === 'measuring' ? 'Measuring…' : 'Measure sound level'}</button>
-            <p className={`sensor-message ${soundStatus === 'unavailable' ? 'warning' : ''}`}>{soundMessage}</p>
-            <p className="microcopy">Amplitude only. No recording, transcription, or conversation analysis.</p>
+          <section>
+            <div className="panel-section-heading"><div><p className="eyebrow">Phone activity</p><h3>Motion summaries</h3></div><span className={`status-label ${motionStatus === 'connected' ? 'live' : motionStatus === 'unavailable' ? 'offline' : 'muted'}`}>{motionStatus === 'connected' ? 'Connected · updating automatically' : motionStatus === 'unavailable' ? 'Unavailable' : 'Permission needed'}</span></div>
+            <div className={`source-status-alert ${motionStatus === 'connected' ? 'success' : motionStatus === 'unavailable' ? 'muted' : 'attention'}`}><strong>{motionStatus === 'connected' ? 'Phone is connected' : motionStatus === 'unavailable' ? 'Motion is unavailable here' : 'Your permission is needed'}</strong><span>{motionMessage}</span></div>
+            <button className="primary" onClick={handleConnectPhone} disabled={motionStatus === 'connecting' || motionStatus === 'connected' || motionStatus === 'unavailable'}>{motionStatus === 'connecting' ? 'Connecting…' : motionStatus === 'connected' ? 'Phone connected' : 'Connect Phone'}</button>
+            <p className="microcopy">WithYou summarizes motion every few seconds while this page is open and active. It does not claim to sense after the browser is closed.</p>
           </section>
         </div>}
-        {activeSourcePanel === 'health' && <div className="panel-stack"><section className="source-detail-empty"><span className={`status-label ${healthConnected ? 'live' : 'muted'}`}>{healthConnected ? 'Connected via Health Connect' : 'Not connected'}</span><h3>{healthConnected ? 'Compact summaries are available' : 'Health data has not synced yet'}</h3><p>{healthConnected ? `Last synced ${formatTime(watchHealth.last_reading_at ?? healthSummaryReadings.at(-1)?.timestamp)}. WithYou receives current and baseline summaries only.` : 'Use the WithYou Android Health Bridge to grant read-only access and manually sync. This browser cannot request native Health Connect permissions.'}</p></section></div>}
+        {activeSourcePanel === 'health' && <div className="panel-stack">
+          <section>
+            <div className="panel-section-heading"><div><p className="eyebrow">Android health</p><h3>{healthState === 'connected' ? 'Latest compact summaries' : 'Set up Health Connect'}</h3></div><span className={`status-label ${healthState === 'connected' ? 'live' : healthState === 'sync_needed' ? 'offline' : 'muted'}`}>{healthState === 'connected' ? 'Connected · synced' : healthState === 'sync_needed' ? 'Sync needed' : 'Not connected'}</span></div>
+            <div className={`source-status-alert ${healthState === 'connected' ? 'success' : healthState === 'sync_needed' ? 'attention' : 'muted'}`}><strong>{healthState === 'connected' ? `Last synced ${formatTime(healthLastSyncedAt)}` : healthState === 'sync_needed' ? 'Health access may be ready, but WithYou needs a fresh sync' : 'Connect from a supported Android phone'}</strong><span>{healthState === 'connected' ? 'Only compact current and 30-day baseline summaries are available here.' : 'The separate WithYou Health Bridge requests read-only access to steps, sleep, and heart rate.'}</span></div>
+            {healthState === 'connected' && <dl className="health-summary-grid">
+              <div><dt>Steps</dt><dd>{currentHealthMetrics.steps ? Math.round(currentHealthMetrics.steps.value).toLocaleString() : 'Not available'}</dd></div>
+              <div><dt>Sleep</dt><dd>{currentHealthMetrics.sleep ? `${currentHealthMetrics.sleep.value.toFixed(1)} h` : 'Not available'}</dd></div>
+              <div><dt>Heart rate</dt><dd>{currentHealthMetrics.heart_rate ? `${Math.round(currentHealthMetrics.heart_rate.value)} bpm` : 'Not available'}</dd></div>
+            </dl>}
+            {healthState !== 'connected' && !healthGuideStarted && <button className="primary" type="button" onClick={() => setHealthGuideStarted(true)}>Connect Health</button>}
+            {(healthGuideStarted || healthState === 'sync_needed') && healthState !== 'connected' && <div className="health-setup-guide">
+              <h4>On your Android phone</h4>
+              <ol className="setup-steps">
+                <li><strong>Check your health source.</strong><span>Make sure Samsung Health or another app has recent steps, sleep, or heart-rate data.</span></li>
+                <li><strong>Allow Health Connect access.</strong><span>In Health Connect, let the source app write those records.</span></li>
+                <li><strong>Open the WithYou Health Bridge.</strong><span>Choose Request read access, then allow Steps, Sleep, and Heart rate.</span></li>
+                <li><strong>Sync recent summaries.</strong><span>Return here afterward; WithYou checks automatically every 15 seconds.</span></li>
+              </ol>
+              <a className="button-link" href="intent:#Intent;action=android.health.connect.action.HEALTH_CONNECT_SETTINGS;end">Open Health Connect settings</a>
+              <p className="microcopy">Android only. If the button does not open settings, go to Settings → Security &amp; privacy → Health Connect. The Health Bridge is required because a browser cannot directly request Health Connect permissions.</p>
+            </div>}
+            <button type="button" onClick={() => setHealthRefreshKey((value) => value + 1)}>{healthState === 'connected' ? 'Refresh summaries' : 'Check sync again'}</button>
+          </section>
+        </div>}
         {activeSourcePanel === 'home' && <div className="panel-stack"><section>
           <div className="panel-section-heading"><div><p className="eyebrow">Pico W demo session</p><h3>{homeSessionId ? 'Manage connection' : 'Connect Home Sensor'}</h3></div><span className={`status-label ${homeConnected ? 'live' : homeSessionUpdatedAt ? 'offline' : 'muted'}`}>{homeSessionId && homeSessionUpdatedAt ? homeSessionFreshness.label : homeSessionId ? 'Connecting' : 'Not paired'}</span></div>
           <form className="pairing-row" onSubmit={(event) => { event.preventDefault(); connectHomeSensor() }}>
@@ -1031,7 +1059,7 @@ export default function App() {
           <details className="inline-disclosure"><summary>Optional health/context notes</summary><div className="clinical-context-editor"><label>Health/context notes<textarea value={clinicalContext} maxLength={2000} placeholder="Examples: night-shift schedule, mobility limitations, medications that may affect sleep or heart rate, or a clinician-provided normal range." onChange={(event) => setClinicalContext(event.target.value)} /></label><div className="primary-controls"><button type="button" onClick={() => void saveHealthContext()}>Remember locally</button><button type="button" className="danger-button" onClick={() => void removeHealthContext()} disabled={!clinicalContext}>Delete notes</button></div><p className="microcopy">Included only when “My context notes” is checked.</p></div></details>
           <button className="primary clinical-generate-button" type="button" onClick={createClinicalSummary}>Generate summary</button>
           <p className="sensor-message" role="status">{clinicalMessage}</p>
-          {clinicalSummary && <><article className="clinical-summary-preview" aria-label="Clinical summary preview"><p className="eyebrow">Preview</p><h2>{clinicalSummary.title}</h2><p className="clinical-disclaimer"><strong>{clinicalSummary.disclaimer}</strong></p><dl className="clinical-summary-meta"><div><dt>Date range</dt><dd>{clinicalSummary.dateRange}</dd></div><div><dt>Generated</dt><dd>{new Date(clinicalSummary.generatedAt).toLocaleString()}</dd></div></dl>{clinicalSummary.sections.map((section) => <section key={section.heading}><h3>{section.heading}</h3><ul>{section.lines.map((line, index) => <li key={`${section.heading}-${index}`}>{line}</li>)}</ul></section>)}</article><div className="clinical-summary-actions"><button type="button" onClick={() => void copyClinicalSummary()}>Copy summary</button><button type="button" onClick={downloadClinicalSummary}>Download text</button><button type="button" onClick={() => window.print()}>Print / Save as PDF</button></div></>}
+          {clinicalSummary && <><article className="clinical-summary-preview" aria-label="Clinical summary preview"><p className="eyebrow">Clinician-ready preview</p><h2>{clinicalSummary.title}</h2><p className="clinical-disclaimer"><strong>{clinicalSummary.disclaimer}</strong></p><dl className="clinical-summary-meta"><div><dt>Date range</dt><dd>{clinicalSummary.dateRange}</dd></div><div><dt>Generated</dt><dd>{new Date(clinicalSummary.generatedAt).toLocaleString()}</dd></div></dl>{clinicalSummary.sections.map((section) => <section className={`clinical-section ${section.kind ?? 'comparison'}`} key={section.heading}><h3>{section.heading}</h3><ul>{section.lines.map((line, index) => <li key={`${section.heading}-${index}`}>{line}</li>)}</ul></section>)}</article><div className="clinical-summary-actions"><button type="button" onClick={() => void copyClinicalSummary()}>Copy summary</button><button type="button" onClick={downloadClinicalSummary}>Download text</button><button type="button" onClick={() => window.print()}>Print / Save as PDF</button></div></>}
         </div>
       </OverlayPanel>
     </>

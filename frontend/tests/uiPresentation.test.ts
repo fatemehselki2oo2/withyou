@@ -9,9 +9,9 @@ import {
 
 test('source rail presents accurate text states without relying on color', () => {
   const items = buildSourceRailItems({
-    phoneConnected: true,
-    phoneDetail: 'Motion ready · sound optional',
-    healthConnected: false,
+    phoneState: 'connected',
+    phoneDetail: 'Updating motion automatically',
+    healthState: 'not_connected',
     healthDetail: 'No Health Connect summary yet',
     homeState: 'offline',
     homeDetail: 'Pico W offline · last reading 42 sec ago',
@@ -25,6 +25,23 @@ test('source rail presents accurate text states without relying on color', () =>
     ['Check-ins', 'Available'],
   ])
   assert.match(items[2].detail, /last reading 42 sec ago/)
+})
+
+test('source rail distinguishes permission, unavailable, and sync-needed states', () => {
+  const items = buildSourceRailItems({
+    phoneState: 'unavailable',
+    phoneDetail: 'Motion is unavailable here',
+    healthState: 'sync_needed',
+    healthDetail: 'Open the Android bridge to sync',
+    homeState: 'not_paired',
+    homeDetail: 'Connect with a demo code',
+    checkInDetail: 'Sleep and mood are available',
+  })
+
+  assert.equal(items[0].state, 'Unavailable')
+  assert.equal(items[0].tone, 'muted')
+  assert.equal(items[1].state, 'Sync needed')
+  assert.equal(items[1].tone, 'attention')
 })
 
 test('Today status shows a clean Start fresh state when no current data exists', () => {

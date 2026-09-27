@@ -206,7 +206,6 @@ input:focus, textarea:focus { border-color: #729086; box-shadow: 0 0 0 3px rgba(
 .demo-panel { background: linear-gradient(135deg, #fbf2e7, #faf9f5); }
 .accent-button { border-color: #d08f62; color: #fff; background: #c97846; }
 .chat-input-row { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px; }
-.voice-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; color: #68736e; font-size: 12px; }
 .recording-button { border-color: #a94c3f; color: #fff; background: #a94c3f; }
 .conversation { display: grid; gap: 10px; margin-top: 18px; }
 .conversation > div { display: grid; gap: 6px; padding: 14px; border-radius: 14px; background: #f0f2ed; }
@@ -236,6 +235,13 @@ input:focus, textarea:focus { border-color: #729086; box-shadow: 0 0 0 3px rgba(
 .clinical-summary-preview section { padding: 14px 0; border-top: 1px solid #e1e4df; }
 .clinical-summary-preview h3 { margin: 0 0 8px; font-size: 15px; }
 .clinical-summary-preview ul { display: grid; gap: 6px; margin: 0; padding-left: 20px; color: #46554f; font-size: 13px; line-height: 1.5; }
+.clinical-section.overview { margin-top: 4px; padding: 16px; border: 0; border-radius: 13px; background: #eef2ed; }
+.clinical-section.overview ul { padding-left: 18px; color: #273c36; font-weight: 600; }
+.clinical-section.comparison h3::after { content: 'Current / personal baseline'; display: block; margin-top: 3px; color: #7b847f; font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.clinical-section.evidence { display: grid; grid-template-columns: minmax(140px, .3fr) 1fr; gap: 18px; }
+.clinical-section.evidence ul { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 18px; }
+.clinical-section.context { padding: 15px; border-radius: 12px; background: #faf4e9; }
+.clinical-section.privacy { color: #65736e; }
 .clinical-summary-actions { display: flex; flex-wrap: wrap; gap: 9px; }
 .source-grid { grid-template-columns: repeat(4, 1fr); }
 .privacy-card { display: grid; grid-template-columns: .55fr 1.45fr auto; align-items: center; gap: 24px; margin-bottom: 18px; padding: 24px; border: 1px solid rgba(54, 72, 66, .12); border-radius: 22px; background: rgba(250, 249, 245, .75); }
@@ -395,6 +401,23 @@ input:focus, textarea:focus { border-color: #729086; box-shadow: 0 0 0 3px rgba(
 .source-detail-empty { display: grid; gap: 12px; }
 .source-detail-empty h3 { margin: 0; font-family: 'Newsreader', Georgia, serif; font-size: 24px; }
 .source-detail-empty p { color: #68736e; font-size: 13px; line-height: 1.6; }
+.source-status-alert { display: grid; gap: 4px; margin-bottom: 15px; padding: 13px 14px; border: 1px solid #d8ddd6; border-radius: 13px; color: #53645e; background: #eff1ec; }
+.source-status-alert strong { color: #31443e; font-size: 13px; }
+.source-status-alert span { font-size: 11px; line-height: 1.5; }
+.source-status-alert.success { border-color: #bfd8ca; background: #e6f1e9; }
+.source-status-alert.attention { border-color: #e2c3aa; background: #f8eee4; }
+.source-status-alert.muted { background: #f0f1ed; }
+.health-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 0 15px; }
+.health-summary-grid div { min-width: 0; padding: 12px; border-radius: 12px; background: #eff1ec; }
+.health-summary-grid dt { color: #74807b; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.health-summary-grid dd { overflow-wrap: anywhere; margin: 4px 0 0; color: #273c36; font-size: 16px; font-weight: 800; }
+.health-setup-guide { display: grid; gap: 13px; margin-bottom: 14px; }
+.health-setup-guide h4 { margin: 0; font-size: 14px; }
+.setup-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: setup-step; }
+.setup-steps li { display: grid; grid-template-columns: 28px 1fr; column-gap: 9px; padding: 11px; border-radius: 11px; background: #eff1ec; counter-increment: setup-step; }
+.setup-steps li::before { display: grid; width: 24px; height: 24px; grid-row: 1 / span 2; place-items: center; border-radius: 50%; color: #fff; background: #45655d; content: counter(setup-step); font-size: 11px; font-weight: 800; }
+.setup-steps strong { font-size: 12px; }
+.setup-steps span { margin-top: 2px; color: #68736e; font-size: 11px; line-height: 1.45; }
 body:has(.overlay-panel[open]) { overflow: hidden; }
 
 @media (max-width: 760px) {
@@ -415,6 +438,8 @@ body:has(.overlay-panel[open]) { overflow: hidden; }
   .overlay-panel.wide { align-items: end; padding: 0; }
   .overlay-panel.wide .overlay-panel-surface { width: 100%; height: 94dvh; border-radius: 22px 22px 0 0; }
   .overlay-panel-header, .overlay-panel-body { padding: 19px; }
+  .clinical-section.evidence { grid-template-columns: 1fr; gap: 6px; }
+  .clinical-section.evidence ul { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 520px) {
@@ -425,8 +450,8 @@ body:has(.overlay-panel[open]) { overflow: hidden; }
   .baseline-signal dl div { display: grid; grid-template-columns: 105px 1fr; align-items: baseline; gap: 8px; }
   .baseline-signal dd { margin: 0; }
   .evidence-list { grid-template-columns: 1fr; }
-  .support-actions { align-items: flex-start; flex-direction: column; }
   .environment-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .health-summary-grid { grid-template-columns: 1fr; }
   .environment-summary span { padding: 10px 7px; }
   .environment-summary strong { font-size: 15px; }
 }

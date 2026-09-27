@@ -21,7 +21,6 @@ export const DEMO_BASELINE: BaselineProfile = {
   normal_sleep_duration: 7.5,
   normal_sleep_start: '00:00',
   normal_wake_time: '08:30',
-  normal_sound_level: 0.42,
   normal_daily_steps: null,
   normal_heart_rate: null,
   sleep_baseline_source: 'demo',

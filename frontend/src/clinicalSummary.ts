@@ -39,6 +39,7 @@ export interface ClinicalSummaryInput {
 export interface ClinicalSummarySection {
   heading: string
   lines: string[]
+  kind?: 'overview' | 'comparison' | 'duration' | 'evidence' | 'context' | 'privacy'
 }
 
 export interface ClinicalSummary {
@@ -157,7 +158,7 @@ export function generateClinicalSummary(input: ClinicalSummaryInput): ClinicalSu
     } else {
       lines.push('No recent completed sleep summary was available in the selected date range.')
     }
-    sections.push({ heading: 'Sleep', lines })
+    sections.push({ heading: 'Sleep · baseline vs recent', lines, kind: 'comparison' })
   }
 
   if (options.includeActivity) {
@@ -204,7 +205,7 @@ export function generateClinicalSummary(input: ClinicalSummaryInput): ClinicalSu
     } else {
       lines.push('No recent activity summary was available in the selected date range.')
     }
-    sections.push({ heading: 'Activity', lines })
+    sections.push({ heading: 'Activity · baseline vs recent', lines, kind: 'comparison' })
   }
 
   if (options.includeHeartRate) {
@@ -222,13 +223,19 @@ export function generateClinicalSummary(input: ClinicalSummaryInput): ClinicalSu
     } else {
       lines.push('No recent compact heart-rate summary was available in the selected date range.')
     }
-    sections.push({ heading: 'Heart rate', lines })
+    sections.push({ heading: 'Heart rate · baseline vs recent', lines, kind: 'comparison' })
   }
 
-  const repeated = [...includedMetrics]
+  const repeatedMetrics = [...includedMetrics]
     .filter((metric) => adaptiveProfile.metrics[metric].state === 'adapting' && adaptiveProfile.metrics[metric].candidate_count >= 5)
-    .map((metric) => `Repeated change observed in ${METRIC_LABELS[metric]}; the personal baseline is adapting gradually.`)
-  if (repeated.length) sections.push({ heading: 'Repeated changes', lines: repeated })
+  const repeated = repeatedMetrics
+    .map((metric) => `Repeated change observed in ${METRIC_LABELS[metric]} across ${adaptiveProfile.metrics[metric].candidate_count} qualified days; the personal baseline is adapting gradually.`)
+  if (repeated.length) sections.push({ heading: 'How long', lines: repeated, kind: 'duration' })
+  else sections.push({
+    heading: 'How long',
+    lines: ['The compact summaries show the latest available comparison. They do not establish how long a change has been continuous.'],
+    kind: 'duration',
+  })
 
   const selectedQualifications = [...includedMetrics]
     .map((metric) => adaptiveProfile.last_qualifications[metric])
@@ -244,6 +251,14 @@ export function generateClinicalSummary(input: ClinicalSummaryInput): ClinicalSu
     }
   }
   const missingSources = [...new Set(pattern.missing_sources.map(readableSource))]
+  sections.unshift({
+    heading: 'At a glance',
+    lines: [
+      `What changed: ${pattern.reasons.length ? pattern.reasons.join('; ') : 'No meaningful difference from the available personal baselines was identified'}.`,
+      `Interpretation: ${pattern.check_in_recommended ? 'A supportive check-in was recommended from the combined pattern.' : 'No strong check-in alert was generated from the available summaries.'}`,
+    ],
+    kind: 'overview',
+  })
   sections.push({
     heading: 'Data confidence and sources',
     lines: [
@@ -252,16 +267,18 @@ export function generateClinicalSummary(input: ClinicalSummaryInput): ClinicalSu
       `Conflicting sources: ${conflictingSources.length ? conflictingSources.join(', ') : 'none identified'}.`,
       `Missing sources: ${missingSources.length ? missingSources.join(', ') : 'none'}. Missing data was not treated as a change.`,
     ],
+    kind: 'evidence',
   })
 
   const context = input.userContext?.trim()
   if (options.includeUserContext && context) {
-    sections.push({ heading: 'User-provided context (verbatim)', lines: [context] })
+    sections.push({ heading: 'User-provided context (verbatim)', lines: [context], kind: 'context' })
   }
 
   sections.push({
     heading: 'Privacy note',
     lines: ['This report contains compact interpreted summaries and adaptive baseline state only. It does not contain raw Health Connect history, heart-rate samples, sleep stages, or full daily histories.'],
+    kind: 'privacy',
   })
 
   const partial: Omit<ClinicalSummary, 'text'> = {

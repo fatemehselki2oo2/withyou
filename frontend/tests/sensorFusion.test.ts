@@ -113,3 +113,21 @@ test('missing all sources does not create an abnormal pattern', () => {
   assert.deepEqual(pattern.supporting_sources, [])
   assert.deepEqual(pattern.missing_sources, ['phone_motion', 'watch_steps', 'home_sensor'])
 })
+
+test('legacy sound readings do not affect patterns or the compact context', () => {
+  const sound: SensorReading = {
+    timestamp: eveningTimestamp(),
+    source: 'phone',
+    sensor_type: 'sound_level',
+    value: 0.99,
+    unit: 'relative',
+    is_simulated: false,
+    metadata: { classification: 'loud' },
+  }
+  const pattern = analyzePatterns([sound], personalBaseline)
+  const context = buildWellnessContext([sound], personalBaseline, pattern)
+
+  assert.equal(pattern.status, 'normal')
+  assert.deepEqual(pattern.reasons, [])
+  assert.equal(context.environment.sound_level, 'unknown')
+})

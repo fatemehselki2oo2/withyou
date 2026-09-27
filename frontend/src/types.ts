@@ -60,7 +60,6 @@ export interface BaselineProfile {
   normal_sleep_duration: number
   normal_sleep_start: string
   normal_wake_time: string
-  normal_sound_level: number
   normal_daily_steps: number | null
   normal_heart_rate: number | null
   sleep_baseline_source: 'demo' | 'health_connect' | 'adaptive'

@@ -38,20 +38,27 @@ export interface MotionSession {
   stop: () => void
 }
 
+export type MotionFailureReason = 'permission_denied' | 'unavailable' | 'no_samples'
+
+export interface MotionSessionOptions {
+  requestPermission?: boolean
+}
+
 export async function startMotionSession(
   onReading: (reading: ActivityReading) => void,
-  onUnavailable: (message: string) => void,
+  onUnavailable: (reason: MotionFailureReason, message: string) => void,
+  options: MotionSessionOptions = {},
 ): Promise<MotionSession | null> {
   if (!('DeviceMotionEvent' in window)) {
-    onUnavailable('Motion sensing is not available in this browser. Demo Mode is ready instead.')
+    onUnavailable('unavailable', 'Motion sensing is not available in this browser or device.')
     return null
   }
 
   const constructor = window.DeviceMotionEvent as PermissionedDeviceMotionEvent
-  if (typeof constructor.requestPermission === 'function') {
+  if (typeof constructor.requestPermission === 'function' && options.requestPermission !== false) {
     const permission = await constructor.requestPermission()
     if (permission !== 'granted') {
-      onUnavailable('Motion permission was not granted. Demo Mode is ready instead.')
+      onUnavailable('permission_denied', 'Motion permission is needed to connect this phone.')
       return null
     }
   }
@@ -86,7 +93,7 @@ export async function startMotionSession(
       window.removeEventListener('devicemotion', handleMotion)
       window.clearInterval(interval)
       stopped = true
-      onUnavailable('No motion readings arrived from this browser. Demo Mode is ready instead.')
+      onUnavailable('no_samples', 'No motion readings arrived. Keep this page open and check browser motion access.')
     }
   }, 5_000)
 

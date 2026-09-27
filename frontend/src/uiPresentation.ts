@@ -12,9 +12,9 @@ export interface SourceRailItem {
 }
 
 export interface SourceRailInput {
-  phoneConnected: boolean
+  phoneState: 'connected' | 'permission_needed' | 'unavailable'
   phoneDetail: string
-  healthConnected: boolean
+  healthState: 'connected' | 'sync_needed' | 'not_connected'
   healthDetail: string
   homeState: 'live' | 'offline' | 'not_paired' | 'connecting'
   homeDetail: string
@@ -34,16 +34,16 @@ export function buildSourceRailItems(input: SourceRailInput): SourceRailItem[] {
     {
       id: 'phone',
       label: 'Phone',
-      state: input.phoneConnected ? 'Connected' : 'Permission required',
+      state: input.phoneState === 'connected' ? 'Connected' : input.phoneState === 'unavailable' ? 'Unavailable' : 'Permission needed',
       detail: input.phoneDetail,
-      tone: input.phoneConnected ? 'connected' : 'attention',
+      tone: input.phoneState === 'connected' ? 'connected' : input.phoneState === 'permission_needed' ? 'attention' : 'muted',
     },
     {
       id: 'health',
       label: 'Health',
-      state: input.healthConnected ? 'Connected' : 'Not connected',
+      state: input.healthState === 'connected' ? 'Connected · synced' : input.healthState === 'sync_needed' ? 'Sync needed' : 'Not connected',
       detail: input.healthDetail,
-      tone: input.healthConnected ? 'connected' : 'muted',
+      tone: input.healthState === 'connected' ? 'connected' : input.healthState === 'sync_needed' ? 'attention' : 'muted',
     },
     {
       id: 'home',

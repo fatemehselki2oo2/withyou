@@ -175,11 +175,6 @@ export function analyzePatterns(readings: SensorReading[], baseline: BaselinePro
     primaryChanges += 1
   }
 
-  const sound = latest(readings, 'sound_level')
-  if (sound && (sound.value > 0.72 || sound.metadata.classification === 'loud')) {
-    reasons.push('Your environment has been louder than usual')
-  }
-
   // Home sensors add context only. They never fill in for phone/watch movement.
   const temperature = latest(readings, 'temperature')
   if (temperature && temperature.value > 80) reasons.push('The room reading is warmer than the demo normal')
@@ -211,7 +206,6 @@ export function buildWellnessContext(
   const sleep = latest(readings, 'sleep')
   const steps = latest(readings, 'steps')
   const heartRate = latest(readings, 'heart_rate')
-  const sound = latest(readings, 'sound_level')
   const temperature = latest(readings, 'temperature')
   const humidity = latest(readings, 'humidity')
   const light = latest(readings, 'light')
@@ -229,7 +223,6 @@ export function buildWellnessContext(
   const heartRateChanged = Boolean(heartRate && baseline.normal_heart_rate
     && Math.abs(heartRate.value - baseline.normal_heart_rate) >= 10
     && Math.abs(heartRateDifference) >= 15)
-  const soundClass = sound?.metadata.classification
 
   return {
     activity: activity ? {
@@ -260,7 +253,9 @@ export function buildWellnessContext(
       temperature_source: temperature ? (temperature.is_simulated ? 'simulated' : temperature.source === 'arduino' ? 'arduino' : 'unknown') : null,
       humidity: humidity?.value ?? null,
       light: light?.value ?? null,
-      sound_level: soundClass === 'quiet' || soundClass === 'normal' || soundClass === 'loud' ? soundClass : 'unknown',
+      // Kept in the compact backend shape for compatibility, but microphone
+      // sensing is intentionally not part of the current product experience.
+      sound_level: 'unknown',
     },
     mood: typeof mood?.metadata.label === 'string' ? mood.metadata.label : null,
     activity_fusion: pattern.activity_fusion,
