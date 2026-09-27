@@ -82,18 +82,18 @@ export function buildTodayPresentation(input: {
       tone: 'empty',
     }
   }
+  if (input.baselineState === 'learning') {
+    return {
+      title: 'Learning your routine',
+      description: 'WithYou is collecting qualified summaries during the initial 30-day learning period. It will not describe changes from your normal yet.',
+      tone: 'learning',
+    }
+  }
   if (input.patternStatus === 'changed') {
     return {
       title: 'A meaningful change was noticed',
       description: input.firstReason ?? 'Available summaries differ from your current personal baseline.',
       tone: 'changed',
-    }
-  }
-  if (input.baselineState === 'learning') {
-    return {
-      title: 'I’m still learning your routine',
-      description: 'Today’s summaries are available, but WithYou needs more qualified days before describing your personal normal.',
-      tone: 'learning',
     }
   }
   return {

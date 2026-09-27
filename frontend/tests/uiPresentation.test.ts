@@ -71,9 +71,23 @@ test('Today status distinguishes learning from a qualified normal routine', () =
     missingSourceCount: 1,
   })
 
-  assert.equal(learning.title, 'I’m still learning your routine')
+  assert.equal(learning.title, 'Learning your routine')
+  assert.match(learning.description, /initial 30-day learning period/)
   assert.equal(qualified.title, 'Things look close to your usual routine')
   assert.match(qualified.description, /Missing sources were ignored/)
+})
+
+test('learning state takes precedence over a provisional changed pattern', () => {
+  const result = buildTodayPresentation({
+    hasCurrentData: true,
+    baselineState: 'learning',
+    patternStatus: 'changed',
+    firstReason: 'Phone motion differs meaningfully from your normal',
+    missingSourceCount: 1,
+  })
+
+  assert.equal(result.title, 'Learning your routine')
+  assert.doesNotMatch(result.description, /meaningful change|differs meaningfully/i)
 })
 
 test('Today status keeps the existing meaningful-change reason', () => {

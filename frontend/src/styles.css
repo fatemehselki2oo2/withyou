@@ -423,6 +423,11 @@ input:focus, textarea:focus { border-color: #729086; box-shadow: 0 0 0 3px rgba(
 .health-install-card p { margin: 0; color: #68736e; font-size: 12px; line-height: 1.55; }
 .health-install-card > .button-link { width: 100%; }
 .health-install-card .microcopy a { color: #315e54; font-weight: 800; }
+.health-download-guidance { display: grid; gap: 4px; padding: 12px 13px; border: 1px solid #c8d8ce; border-radius: 12px; color: #39564d; background: #eef5f0; }
+.health-download-guidance strong { font-size: 12px; }
+.health-download-guidance span { font-size: 11px; line-height: 1.5; }
+.health-install-fallbacks { display: grid; gap: 9px; }
+.health-install-fallbacks > a:not(.button-link) { width: fit-content; color: #315e54; font-size: 11px; font-weight: 800; }
 .health-install-steps { display: grid; gap: 8px; margin: 0; padding: 0; counter-reset: install-step; list-style: none; }
 .health-install-steps li { display: flex; align-items: center; gap: 9px; color: #4f615a; font-size: 12px; font-weight: 700; counter-increment: install-step; }
 .health-install-steps li::before { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #fff; background: #738775; content: counter(install-step); font-size: 11px; }

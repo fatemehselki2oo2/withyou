@@ -33,7 +33,9 @@ import {
 import { fetchHealthConnectSummaries } from './healthConnect'
 import {
   HEALTH_HELPER_APK_URL,
+  HEALTH_HELPER_GITHUB_APK_URL,
   HEALTH_HELPER_INSTALL_HELP_URL,
+  HEALTH_HELPER_RELEASE_URL,
   healthBridgeIntentUrl,
   healthBridgeReturnState,
 } from './healthBridge'
@@ -194,6 +196,7 @@ export default function App() {
   const [healthSummaryReadings, setHealthSummaryReadings] = useState<SensorReading[]>([])
   const [healthRefreshKey, setHealthRefreshKey] = useState(0)
   const [healthGuideStarted, setHealthGuideStarted] = useState(healthBridgeReturn != null)
+  const [healthInstallStarted, setHealthInstallStarted] = useState(false)
   const [healthBridgeMessage, setHealthBridgeMessage] = useState(() => {
     if (healthBridgeReturn === 'not_installed') {
       return 'To connect your health data, install the WithYou Health Helper.'
@@ -387,8 +390,8 @@ export default function App() {
     [readings, selectedHealthSummaries],
   )
   const pattern = useMemo(
-    () => analyzePatterns(comparisonReadings, effectiveBaseline),
-    [comparisonReadings, effectiveBaseline],
+    () => analyzePatterns(comparisonReadings, effectiveBaseline, adaptiveProfile),
+    [comparisonReadings, effectiveBaseline, adaptiveProfile],
   )
   const learning = useMemo(
     () => buildLearningInputs(comparisonReadings, selectedHealthSummaries, pattern.activity_fusion),
@@ -1066,14 +1069,27 @@ export default function App() {
             {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthBridgeMessage && healthBridgeReturn !== 'not_installed' && <div className="health-bridge-message" role="status"><strong>{healthBridgeMessage}</strong><span>Follow the permission and sync steps in the helper. WithYou checks again as soon as you return.</span></div>}
             {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthBridgeReturn === 'not_installed' && <div className="health-install-card" role="status">
               <div><p className="eyebrow">One small Android helper</p><h4>{healthBridgeMessage}</h4><p>It connects your phone’s Health Connect data with WithYou so your steps, sleep, and heart-rate summaries can appear here.</p></div>
-              <a className="button-link primary" href={HEALTH_HELPER_APK_URL} target="_blank" rel="noreferrer">Install WithYou Health Helper</a>
+              <a
+                className="button-link primary"
+                href={HEALTH_HELPER_APK_URL}
+                download="withyou-health-helper.apk"
+                onClick={() => setHealthInstallStarted(true)}
+              >{healthInstallStarted ? 'Download again' : 'Install WithYou Health Helper'}</a>
               <ol className="health-install-steps">
-                <li>Open the downloaded file</li>
+                <li>{healthInstallStarted ? 'Tap the completed download notification' : 'Start the download and keep this page open'}</li>
                 <li>Tap Install when Android asks</li>
                 <li>Return to WithYou</li>
               </ol>
+              {healthInstallStarted && <div className="health-download-guidance" role="status">
+                <strong>Download started</strong>
+                <span>Chrome should show a completed-download notification. Tap it to open the installer. If nothing finishes, use Download again or open the GitHub release page below.</span>
+              </div>}
+              <div className="health-install-fallbacks" aria-label="Health Helper download alternatives">
+                <a className="button-link" href={HEALTH_HELPER_RELEASE_URL} target="_blank" rel="noreferrer">Open GitHub release page</a>
+                <a href={HEALTH_HELPER_INSTALL_HELP_URL} target="_blank" rel="noreferrer">Installation help</a>
+              </div>
               <a className="button-link" href={healthBridgeLink}>Open WithYou Health Helper</a>
-              <p className="microcopy">Android will always show its own install confirmation. This hackathon app is not listed in an app store. <a href={HEALTH_HELPER_INSTALL_HELP_URL} target="_blank" rel="noreferrer">Need install help?</a></p>
+              <p className="microcopy">Android will always show its own install confirmation. This hackathon app is not listed in an app store. If the direct download is blocked, the <a href={HEALTH_HELPER_GITHUB_APK_URL}>GitHub asset</a> remains available as a secondary fallback.</p>
             </div>}
             {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthState === 'sync_needed' && healthBridgeReturn !== 'not_installed' && <div className="health-setup-guide"><h4>Continue in WithYou Health Helper</h4><p>Review Health permissions, then tap Sync health data. The helper can open the right Android settings when needed.</p><a className="button-link" href={healthBridgeLink}>Open WithYou Health Helper</a></div>}
             {!platform.isDesktop && !platform.isAndroid && healthState !== 'connected' && <div className="health-setup-guide"><h4>Health Connect requires Android</h4><p>WithYou does not currently connect to Apple Health. You can still use phone motion, check-ins, Home Sensor summaries, and the companion on this device.</p></div>}

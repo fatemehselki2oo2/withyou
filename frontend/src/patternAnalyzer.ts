@@ -7,7 +7,7 @@ import type {
   SensorType,
   WellnessContext,
 } from './types'
-import { adaptiveBaselineState, type AdaptiveBaselineProfile } from './adaptiveBaseline.ts'
+import { adaptiveBaselineState, initialBaselineLearning, type AdaptiveBaselineProfile } from './adaptiveBaseline.ts'
 
 type ActivityDirection = 'normal' | 'low' | 'high'
 
@@ -137,10 +137,35 @@ function activityReason(fusion: ActivityFusionAnalysis): string | null {
   return null
 }
 
-export function analyzePatterns(readings: SensorReading[], baseline: BaselineProfile): PatternAnalysis {
+export function analyzePatterns(
+  readings: SensorReading[],
+  baseline: BaselineProfile,
+  adaptiveProfile?: AdaptiveBaselineProfile,
+  now = new Date(),
+): PatternAnalysis {
   const reasons: string[] = []
   let primaryChanges = 0
   const activityFusion = fuseActivity(readings, baseline)
+  const supportingSources = availableSources(readings)
+  const missingSources = EXPECTED_SOURCES.filter((source) => !supportingSources.includes(source))
+
+  if (adaptiveProfile && initialBaselineLearning(adaptiveProfile, now).active) {
+    return {
+      status: 'normal',
+      severity: 'low',
+      reasons: [],
+      check_in_recommended: false,
+      activity_fusion: {
+        interpretation: 'unavailable',
+        confidence: 'none',
+        supporting_sources: activityFusion.supporting_sources,
+        missing_sources: activityFusion.missing_sources,
+        note: 'Activity evidence is being collected while WithYou learns your routine.',
+      },
+      supporting_sources: supportingSources,
+      missing_sources: missingSources,
+    }
+  }
   const fusedReason = activityReason(activityFusion)
   if (fusedReason) {
     reasons.push(fusedReason)
@@ -182,8 +207,6 @@ export function analyzePatterns(readings: SensorReading[], baseline: BaselinePro
   const humidity = latest(readings, 'humidity')
   if (humidity && humidity.value > 70) reasons.push('The room humidity reading is higher than the demo normal')
 
-  const supportingSources = availableSources(readings)
-  const missingSources = EXPECTED_SOURCES.filter((source) => !supportingSources.includes(source))
   const status = reasons.length ? 'changed' : 'normal'
   return {
     status,

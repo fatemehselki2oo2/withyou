@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  adaptiveBaselineState,
   applyAdaptiveBaseline,
   buildLearningInputs,
   createAdaptiveProfile,
+  initialBaselineLearning,
   restoreAdaptiveProfile,
   updateAdaptiveProfile,
   type AdaptiveBaselineProfile,
@@ -87,6 +89,47 @@ test('one abnormal day does not move a qualified phone baseline', () => {
   assert.equal(after.metrics.phone_motion.candidate_count, 1)
   assert.equal(after.last_qualifications.phone_motion.qualified_for_baseline, false)
   assert.match(after.last_qualifications.phone_motion.reason, /Statistical outlier/)
+})
+
+test('a brand-new user starts in the 30-day learning period', () => {
+  const started = new Date('2026-09-01T12:00:00Z')
+  const profile = createAdaptiveProfile(DEMO_BASELINE, started)
+  const progress = initialBaselineLearning(profile, started)
+
+  assert.equal(progress.active, true)
+  assert.equal(progress.elapsed_days, 0)
+  assert.equal(progress.remaining_days, 30)
+  assert.equal(adaptiveBaselineState(profile, started), 'learning')
+})
+
+test('qualified observations do not enable change alerts during the first 30 days', () => {
+  const started = new Date('2026-09-01T00:00:00Z')
+  const now = new Date('2026-09-30T23:59:59Z')
+  const profile = createAdaptiveProfile(DEMO_BASELINE, started)
+  profile.metrics.phone_motion.state = 'qualified'
+  profile.metrics.phone_motion.sample_count = 30
+  const reading = phoneReading('2026-09-30', 0.05)
+  const pattern = analyzePatterns([reading], DEMO_BASELINE, profile, now)
+
+  assert.equal(adaptiveBaselineState(profile, now), 'learning')
+  assert.equal(pattern.status, 'normal')
+  assert.deepEqual(pattern.reasons, [])
+  assert.equal(pattern.check_in_recommended, false)
+  assert.match(pattern.activity_fusion.note, /learns your routine/)
+})
+
+test('day 30 plus an established baseline enables existing comparison logic', () => {
+  const started = new Date('2026-09-01T00:00:00Z')
+  const now = new Date('2026-10-01T00:00:00Z')
+  const profile = createAdaptiveProfile(DEMO_BASELINE, started)
+  profile.metrics.phone_motion.state = 'qualified'
+  profile.metrics.phone_motion.sample_count = 30
+  const pattern = analyzePatterns([phoneReading('2026-10-01', 0.05)], DEMO_BASELINE, profile, now)
+
+  assert.equal(initialBaselineLearning(profile, now).active, false)
+  assert.equal(adaptiveBaselineState(profile, now), 'qualified')
+  assert.equal(pattern.status, 'changed')
+  assert.match(pattern.reasons.join(' '), /Phone motion differs meaningfully/)
 })
 
 test('conflicting extreme phone motion is not qualified for baseline learning', () => {

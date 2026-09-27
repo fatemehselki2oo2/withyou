@@ -30,10 +30,14 @@ export interface AdaptiveMetricState {
 export interface AdaptiveBaselineProfile {
   id: 'adaptive'
   version: 1
+  learning_started_at: string
   metrics: Record<AdaptiveMetric, AdaptiveMetricState>
   last_qualifications: Record<string, DataQualification>
   last_updated: string | null
 }
+
+export const INITIAL_BASELINE_LEARNING_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
 
 interface LearningInput {
   metric: AdaptiveMetric
@@ -95,10 +99,11 @@ function formatClock(value: number): string {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
 }
 
-export function createAdaptiveProfile(fallback: BaselineProfile): AdaptiveBaselineProfile {
+export function createAdaptiveProfile(fallback: BaselineProfile, now = new Date()): AdaptiveBaselineProfile {
   return {
     id: 'adaptive',
     version: 1,
+    learning_started_at: now.toISOString(),
     metrics: {
       phone_motion: metricState(fallback.normal_activity_level),
       steps: metricState(fallback.normal_daily_steps),
@@ -118,15 +123,40 @@ export function restoreAdaptiveProfile(
 ): AdaptiveBaselineProfile {
   const fresh = createAdaptiveProfile(fallback)
   if (!saved || saved.version !== 1) return fresh
+  const savedStart = saved.learning_started_at
+    ?? Object.values(saved.metrics ?? {}).map((metric) => metric?.last_updated).filter(Boolean).sort()[0]
+    ?? saved.last_updated
+    ?? fresh.learning_started_at
   return {
     ...fresh,
     ...saved,
+    learning_started_at: savedStart,
     metrics: Object.fromEntries(
       Object.entries(fresh.metrics).map(([metric, defaultState]) => [
         metric,
         { ...defaultState, ...saved.metrics?.[metric as AdaptiveMetric] },
       ]),
     ) as Record<AdaptiveMetric, AdaptiveMetricState>,
+  }
+}
+
+export function initialBaselineLearning(
+  profile: AdaptiveBaselineProfile,
+  now = new Date(),
+): { active: boolean; elapsed_days: number; remaining_days: number; has_established_metric: boolean } {
+  const started = new Date(profile.learning_started_at).getTime()
+  const current = now.getTime()
+  const elapsedDays = Number.isFinite(started) && Number.isFinite(current)
+    ? Math.max(0, Math.floor((current - started) / DAY_MS))
+    : 0
+  const hasEstablishedMetric = Object.values(profile.metrics)
+    .some((metric) => metric.state === 'qualified' || metric.state === 'adapting')
+  const remainingDays = Math.max(0, INITIAL_BASELINE_LEARNING_DAYS - elapsedDays)
+  return {
+    active: remainingDays > 0 || !hasEstablishedMetric,
+    elapsed_days: elapsedDays,
+    remaining_days: remainingDays,
+    has_established_metric: hasEstablishedMetric,
   }
 }
 
@@ -438,7 +468,8 @@ export function updateAdaptiveProfile(
   }
 }
 
-export function adaptiveBaselineState(profile: AdaptiveBaselineProfile): BaselineState {
+export function adaptiveBaselineState(profile: AdaptiveBaselineProfile, now = new Date()): BaselineState {
+  if (initialBaselineLearning(profile, now).active) return 'learning'
   const states = Object.values(profile.metrics).map((metric) => metric.state)
   if (states.includes('adapting')) return 'adapting'
   if (states.includes('qualified')) return 'qualified'

@@ -28,6 +28,10 @@ self.addEventListener('fetch', (event) => {
   const request = event.request
   const url = new URL(request.url)
 
+  // APK downloads must go straight to the browser download manager. Do not
+  // clone or cache the 19 MB installer inside the PWA service worker.
+  if (url.pathname.endsWith('.apk')) return
+
   // Never let an old cached HTML document keep a stale Vite bundle alive after a deployment.
   if (request.mode === 'navigate') {
     event.respondWith(
