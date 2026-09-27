@@ -43,6 +43,7 @@ import {
   selectHealthConnectSummaries,
 } from './healthSummarySelection'
 import { startMotionSession, type MotionFailureReason, type MotionSession } from './motion'
+import { platformInfo } from './platform'
 import { analyzePatterns, buildWellnessContext, latestReading } from './patternAnalyzer'
 import { canUseVoiceInput, requestVoiceInputStream } from './voiceInput'
 import {
@@ -169,6 +170,7 @@ export default function App() {
   const clinicalDateDefaults = useMemo(defaultClinicalDateRange, [])
   const healthBridgeReturn = useMemo(() => healthBridgeReturnState(window.location.search), [])
   const healthBridgeLink = useMemo(() => healthBridgeIntentUrl(window.location.href), [])
+  const platform = useMemo(() => platformInfo(navigator), [])
   const [baseline, setBaseline] = useState<BaselineProfile>(DEMO_BASELINE)
   const [adaptiveProfile, setAdaptiveProfile] = useState(() => createAdaptiveProfile(DEMO_BASELINE))
   const [adaptiveLoaded, setAdaptiveLoaded] = useState(false)
@@ -801,6 +803,17 @@ export default function App() {
     homeState: homeRailState,
     homeDetail: homeSessionId ? (homeSessionUpdatedAt ? homeSessionFreshness.label : `Pairing ${homeSessionId}`) : 'Connect with a demo code',
     checkInDetail: mood ? `Last check-in ${formatTime(mood.timestamp)}` : 'Sleep and mood are available',
+  }).map((item) => {
+    if (!platform.isDesktop) return item
+    if (item.id === 'phone') {
+      return activity
+        ? { ...item, state: 'Summary available', detail: `Latest mobile summary ${formatTime(activity.timestamp)}`, tone: 'connected' as const }
+        : { ...item, state: 'Mobile source', detail: 'Connect activity from your phone', tone: 'muted' as const }
+    }
+    if (item.id === 'health' && healthState !== 'connected') {
+      return { ...item, state: healthState === 'sync_needed' ? 'Sync on mobile' : 'Mobile setup', detail: 'Connect Health from Android', tone: healthState === 'sync_needed' ? 'attention' as const : 'muted' as const }
+    }
+    return item
   })
   const baselineRows: BaselineComparisonRow[] = [
     {
@@ -850,8 +863,12 @@ export default function App() {
     .flatMap((qualification) => qualification.conflicting_sources)
     .map(readableSourceName))]
   const sourcePanelTitles: Record<SourceRailId, { title: string; description: string }> = {
-    phone: { title: 'Connect Phone', description: 'Use motion to summarize activity while WithYou is open.' },
-    health: { title: 'Connect Health', description: 'Bring in compact steps, sleep, and heart-rate summaries from Health Connect.' },
+    phone: platform.isDesktop
+      ? { title: 'Phone activity summaries', description: 'View mobile activity evidence without using this computer as a motion sensor.' }
+      : { title: 'Connect Phone', description: 'Use motion to summarize activity while WithYou is open.' },
+    health: platform.isDesktop
+      ? { title: 'Health summaries', description: 'View compact Health Connect summaries synced from an Android phone.' }
+      : { title: 'Connect Health', description: 'Bring in compact steps, sleep, and heart-rate summaries from Health Connect.' },
     home: { title: 'Home Sensor', description: 'Pair this browser with the temporary Pico W demo session.' },
     checkins: { title: 'Manual check-ins', description: 'Sleep and mood entries stay in this browser’s local storage.' },
   }
@@ -1021,10 +1038,16 @@ export default function App() {
       >
         {activeSourcePanel === 'phone' && <div className="panel-stack">
           <section>
-            <div className="panel-section-heading"><div><p className="eyebrow">Phone activity</p><h3>Motion summaries</h3></div><span className={`status-label ${motionStatus === 'connected' ? 'live' : motionStatus === 'unavailable' ? 'offline' : 'muted'}`}>{motionStatus === 'connected' ? 'Connected · updating automatically' : motionStatus === 'unavailable' ? 'Unavailable' : 'Permission needed'}</span></div>
-            <div className={`source-status-alert ${motionStatus === 'connected' ? 'success' : motionStatus === 'unavailable' ? 'muted' : 'attention'}`}><strong>{motionStatus === 'connected' ? 'Phone is connected' : motionStatus === 'unavailable' ? 'Motion is unavailable here' : 'Your permission is needed'}</strong><span>{motionMessage}</span></div>
-            <button className="primary" onClick={handleConnectPhone} disabled={motionStatus === 'connecting' || motionStatus === 'connected' || motionStatus === 'unavailable'}>{motionStatus === 'connecting' ? 'Connecting…' : motionStatus === 'connected' ? 'Phone connected' : 'Connect Phone'}</button>
-            <p className="microcopy">WithYou summarizes motion every few seconds while this page is open and active. It does not claim to sense after the browser is closed.</p>
+            {platform.isDesktop ? <>
+              <div className="panel-section-heading"><div><p className="eyebrow">Viewing portal</p><h3>Phone activity</h3></div><span className={`status-label ${activity ? 'live' : 'muted'}`}>{activity ? 'Summary available' : 'Connect on mobile'}</span></div>
+              <div className={`source-status-alert ${activity ? 'success' : 'muted'}`}><strong>{activity ? 'Latest phone activity summary' : 'Use WithYou on your phone'}</strong><span>{activity ? `Last mobile motion summary ${formatTime(activity.timestamp)}. This computer is only displaying the available result.` : 'Open WithYou on your phone and choose Connect Phone there. This desktop does not request motion permission.'}</span></div>
+              <p className="microcopy">Phone motion stays local to the browser where it was collected. Desktop WithYou never treats laptop movement as phone activity.</p>
+            </> : <>
+              <div className="panel-section-heading"><div><p className="eyebrow">Phone activity</p><h3>Motion summaries</h3></div><span className={`status-label ${motionStatus === 'connected' ? 'live' : motionStatus === 'unavailable' ? 'offline' : 'muted'}`}>{motionStatus === 'connected' ? 'Connected · updating automatically' : motionStatus === 'unavailable' ? 'Unavailable' : 'Permission needed'}</span></div>
+              <div className={`source-status-alert ${motionStatus === 'connected' ? 'success' : motionStatus === 'unavailable' ? 'muted' : 'attention'}`}><strong>{motionStatus === 'connected' ? 'Phone is connected' : motionStatus === 'unavailable' ? 'Motion is unavailable here' : 'Your permission is needed'}</strong><span>{motionMessage}</span></div>
+              <button className="primary" onClick={handleConnectPhone} disabled={motionStatus === 'connecting' || motionStatus === 'connected' || motionStatus === 'unavailable'}>{motionStatus === 'connecting' ? 'Connecting…' : motionStatus === 'connected' ? 'Phone connected' : 'Connect Phone'}</button>
+              <p className="microcopy">WithYou summarizes motion every few seconds while this page is open and active. It does not claim to sense after the browser is closed.</p>
+            </>}
           </section>
         </div>}
         {activeSourcePanel === 'health' && <div className="panel-stack">
@@ -1036,12 +1059,12 @@ export default function App() {
               <div><dt>Sleep</dt><dd>{currentHealthMetrics.sleep ? `${currentHealthMetrics.sleep.value.toFixed(1)} h` : 'Not available'}</dd></div>
               <div><dt>Heart rate</dt><dd>{currentHealthMetrics.heart_rate ? `${Math.round(currentHealthMetrics.heart_rate.value)} bpm` : 'Not available'}</dd></div>
             </dl>}
-            {healthState !== 'connected' && healthBridgeReturn !== 'not_installed' && <a className="button-link primary" href={healthBridgeLink} onClick={() => {
+            {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthBridgeReturn !== 'not_installed' && <a className="button-link primary" href={healthBridgeLink} onClick={() => {
               setHealthGuideStarted(true)
               setHealthBridgeMessage('Opening WithYou Health Helper…')
             }}>{healthGuideStarted ? 'Open WithYou Health Helper' : 'Connect Health'}</a>}
-            {healthState !== 'connected' && healthBridgeMessage && healthBridgeReturn !== 'not_installed' && <div className="health-bridge-message" role="status"><strong>{healthBridgeMessage}</strong><span>Follow the permission and sync steps in the helper. WithYou checks again as soon as you return.</span></div>}
-            {healthState !== 'connected' && healthBridgeReturn === 'not_installed' && <div className="health-install-card" role="status">
+            {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthBridgeMessage && healthBridgeReturn !== 'not_installed' && <div className="health-bridge-message" role="status"><strong>{healthBridgeMessage}</strong><span>Follow the permission and sync steps in the helper. WithYou checks again as soon as you return.</span></div>}
+            {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthBridgeReturn === 'not_installed' && <div className="health-install-card" role="status">
               <div><p className="eyebrow">One small Android helper</p><h4>{healthBridgeMessage}</h4><p>It connects your phone’s Health Connect data with WithYou so your steps, sleep, and heart-rate summaries can appear here.</p></div>
               <a className="button-link primary" href={HEALTH_HELPER_APK_URL} target="_blank" rel="noreferrer">Install WithYou Health Helper</a>
               <ol className="health-install-steps">
@@ -1052,7 +1075,9 @@ export default function App() {
               <a className="button-link" href={healthBridgeLink}>Open WithYou Health Helper</a>
               <p className="microcopy">Android will always show its own install confirmation. This hackathon app is not listed in an app store. <a href={HEALTH_HELPER_INSTALL_HELP_URL} target="_blank" rel="noreferrer">Need install help?</a></p>
             </div>}
-            {healthState !== 'connected' && healthState === 'sync_needed' && healthBridgeReturn !== 'not_installed' && <div className="health-setup-guide"><h4>Continue in WithYou Health Helper</h4><p>Review Health permissions, then tap Sync health data. The helper can open the right Android settings when needed.</p><a className="button-link" href={healthBridgeLink}>Open WithYou Health Helper</a></div>}
+            {!platform.isDesktop && platform.isAndroid && healthState !== 'connected' && healthState === 'sync_needed' && healthBridgeReturn !== 'not_installed' && <div className="health-setup-guide"><h4>Continue in WithYou Health Helper</h4><p>Review Health permissions, then tap Sync health data. The helper can open the right Android settings when needed.</p><a className="button-link" href={healthBridgeLink}>Open WithYou Health Helper</a></div>}
+            {!platform.isDesktop && !platform.isAndroid && healthState !== 'connected' && <div className="health-setup-guide"><h4>Health Connect requires Android</h4><p>WithYou does not currently connect to Apple Health. You can still use phone motion, check-ins, Home Sensor summaries, and the companion on this device.</p></div>}
+            {platform.isDesktop && healthState !== 'connected' && <div className="health-setup-guide"><h4>Connect Health from your Android phone</h4><p>Open WithYou on Android, choose Connect Health, and complete the permission and sync steps there. This desktop view checks automatically for compact synced summaries.</p></div>}
             <button type="button" onClick={() => setHealthRefreshKey((value) => value + 1)}>{healthState === 'connected' ? 'Refresh summaries' : 'Check sync again'}</button>
           </section>
         </div>}
